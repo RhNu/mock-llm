@@ -1,0 +1,19 @@
+id: "llm-pro"
+owned_by: "llm-lab"
+created: 1738675200
+type: "static"
+
+static:
+  replies:
+    - content: "抱歉，我无法提供该信息。"
+      reasoning: "Match-based safe reply."
+      match:
+        - regex: "/secret|password|token/i"
+        - "密码"
+    - content: "当前时间是2026年。"
+      match:
+        - regex: "/time|date/i"
+        - "时间"
+    - content: "我是 llm-pro，一款由llm-lab研发的高性能模型。"
+  strategy: "match"
+  stream_chunk_chars: 16

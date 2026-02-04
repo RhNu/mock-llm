@@ -1,0 +1,10 @@
+services:
+  mock-llm:
+    build: .
+    image: mock-llm:local
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config
+    environment:
+      - RUST_LOG=mock_llm=info

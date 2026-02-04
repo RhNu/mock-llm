@@ -1,0 +1,11 @@
+id: "llm-flash"
+owned_by: "llm-lab"
+created: 1738675200
+type: "static"
+
+static:
+  replies:
+    - content: "你好。"
+    - content: "我是llm-flash，一款由llm-lab研发的高性能模型。"
+  strategy: "random"
+  stream_chunk_chars: 16

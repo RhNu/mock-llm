@@ -1,0 +1,10 @@
+id: "llm-ultra"
+owned_by: "llm-lab"
+created: 1738675200
+type: "script"
+
+script:
+  file: "scripts/example.js"
+  init_file: "scripts/init.js"
+  timeout_ms: 1500
+  stream_chunk_chars: 24
