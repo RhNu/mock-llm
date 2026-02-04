@@ -41,7 +41,7 @@ pub async fn chat_completions(
     let model_id = req
         .model
         .clone()
-        .or_else(|| kernel.config.default_model.clone())
+        .or_else(|| kernel.config.models.default.clone())
         .ok_or_else(|| AppError::bad_request("model is required"))?;
 
     let alias = kernel
@@ -117,7 +117,7 @@ pub async fn chat_completions(
     });
 
     if let Some(reasoning) = reasoning_field {
-        body["mock_reasoning"] = json!(reasoning);
+        body["reasoning_content"] = json!(reasoning);
     }
     if let Some(usage) = usage {
         body["usage"] = json!(usage);
@@ -351,9 +351,10 @@ fn apply_reasoning(
     mode: ReasoningMode,
 ) -> (String, Option<String>) {
     match (reasoning, mode) {
-        (Some(r), ReasoningMode::Append) => (format!("{content}\n\n[Reasoning]\n{r}"), None),
+        (Some(r), ReasoningMode::Prefix) => (format!("<think>{r}</think>\n{content}"), None),
         (Some(r), ReasoningMode::Field) => (content, Some(r)),
-        (Some(r), ReasoningMode::Both) => (format!("{content}\n\n[Reasoning]\n{r}"), Some(r)),
+        (Some(r), ReasoningMode::Both) => (format!("<think>{r}</think>\n{content}"), Some(r)),
+        (_, ReasoningMode::None) => (content, None),
         (None, _) => (content, None),
     }
 }

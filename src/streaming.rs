@@ -51,7 +51,7 @@ pub fn build_sse_stream(
                     "created": created,
                     "model": model.clone(),
                     "choices": [
-                        { "index": 0, "delta": { "mock_reasoning": part }, "finish_reason": null }
+                        { "index": 0, "delta": { "reasoning_content": part }, "finish_reason": null }
                     ]
                 });
                 events.push(Ok(Event::default().data(chunk.to_string())));

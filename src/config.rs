@@ -11,10 +11,40 @@ pub struct GlobalConfig {
     pub server: ServerConfig,
     pub response: ResponseConfig,
     #[serde(default)]
+    pub models: ModelsConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ModelsConfig {
+    #[serde(default)]
+    pub default: Option<String>,
+    #[serde(default)]
     pub routing: RoutingConfig,
-    #[serde(default = "default_models_dir")]
-    pub models_dir: String,
-    pub default_model: Option<String>,
+}
+
+impl ModelsConfig {
+    fn is_empty(&self) -> bool {
+        let has_default = self
+            .default
+            .as_ref()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+        !has_default && self.routing.aliases.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DiskConfig {
+    pub server: ServerConfig,
+    pub response: ResponseConfig,
+    #[serde(default)]
+    pub models: Option<ModelsConfig>,
+    #[serde(default, rename = "routing")]
+    pub legacy_routing: Option<RoutingConfig>,
+    #[serde(default, rename = "default_model")]
+    pub legacy_default_model: Option<String>,
+    #[serde(default, rename = "models_dir")]
+    pub legacy_models_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -54,7 +84,9 @@ pub struct ResponseConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningMode {
-    Append,
+    None,
+    #[serde(alias = "append")]
+    Prefix,
     Field,
     Both,
 }
@@ -173,14 +205,19 @@ pub struct LoadedModel {
     pub base_dir: PathBuf,
 }
 
+pub fn parse_global_config(config_text: &str) -> anyhow::Result<GlobalConfig> {
+    let disk: DiskConfig =
+        serde_yaml_ng::from_str(config_text).context("failed to parse config.yaml")?;
+    Ok(normalize_disk_config(disk))
+}
+
 pub fn load_app_config(config_dir: &Path) -> anyhow::Result<(GlobalConfig, Vec<LoadedModel>)> {
     let config_path = config_dir.join("config.yaml");
     let config_text = fs::read_to_string(&config_path)
         .with_context(|| format!("failed to read {}", config_path.display()))?;
-    let mut global: GlobalConfig =
-        serde_yaml_ng::from_str(&config_text).context("failed to parse config.yaml")?;
+    let mut global = parse_global_config(&config_text)?;
 
-    let models_dir = config_dir.join(&global.models_dir);
+    let models_dir = config_dir.join("models");
     let scripts_dir = config_dir.join("scripts");
     let mut model_files = Vec::new();
     collect_yaml_files_flat(&models_dir, &mut model_files)
@@ -235,7 +272,7 @@ pub fn load_app_config(config_dir: &Path) -> anyhow::Result<(GlobalConfig, Vec<L
         anyhow::bail!("no model yaml found under {}", models_dir.display());
     }
 
-    let aliases = if global.routing.aliases.is_empty() {
+    let aliases = if global.models.routing.aliases.is_empty() {
         models
             .iter()
             .map(|model| AliasConfig {
@@ -245,11 +282,11 @@ pub fn load_app_config(config_dir: &Path) -> anyhow::Result<(GlobalConfig, Vec<L
             })
             .collect()
     } else {
-        global.routing.aliases.clone()
+        global.models.routing.aliases.clone()
     };
 
     validate_aliases(&aliases, &models, &config_path)?;
-    global.routing.aliases = aliases;
+    global.models.routing.aliases = aliases;
 
     Ok((global, models))
 }
@@ -392,8 +429,34 @@ fn ensure_relative_path(value: &str, field: &str, config_path: &Path) -> anyhow:
     Ok(())
 }
 
-fn default_models_dir() -> String {
-    "models".to_string()
+fn normalize_disk_config(mut disk: DiskConfig) -> GlobalConfig {
+    let mut models = disk.models.unwrap_or_default();
+    let _ = disk.legacy_models_dir.take();
+
+    if models.is_empty() {
+        if let Some(default_model) = disk.legacy_default_model.take() {
+            if !default_model.trim().is_empty() {
+                models.default = Some(default_model);
+            }
+        }
+        if let Some(routing) = disk.legacy_routing.take() {
+            if !routing.aliases.is_empty() {
+                models.routing = routing;
+            }
+        }
+    }
+
+    if let Some(value) = models.default.as_ref() {
+        if value.trim().is_empty() {
+            models.default = None;
+        }
+    }
+
+    GlobalConfig {
+        server: disk.server,
+        response: disk.response,
+        models,
+    }
 }
 
 fn default_owned_by() -> String {

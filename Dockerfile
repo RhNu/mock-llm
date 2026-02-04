@@ -4,6 +4,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY config ./config
+COPY ui ./ui
 
 RUN cargo build --release
 

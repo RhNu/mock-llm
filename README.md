@@ -21,6 +21,24 @@ config/
 cargo run -- --config-dir ./config
 ```
 
+## Admin UI
+
+Build the UI before running the server:
+
+```
+cd ui
+pnpm install
+pnpm run build
+```
+
+Then open:
+
+```
+http://<host>:<port>/
+```
+
+If `server.admin_auth.enabled: true`, enter the admin token when prompted.
+
 ## 端点
 
 - `GET /v0/status`
@@ -49,11 +67,10 @@ cargo run -- --config-dir ./config
 - `server.auth.api_key`：Bearer token
 - `server.admin_auth.enabled`：是否启用管理端点鉴权
 - `server.admin_auth.api_key`：管理 API Bearer token
-- `response.reasoning_mode`：`append | field | both`
+- `response.reasoning_mode`：`none | prefix | field | both`（兼容 `append`）
 - `response.include_usage`：是否返回 usage（估算）
-- `models_dir`：模型目录（相对 `config/`）
-- `default_model`：请求未指定 model 时的默认模型（默认 `llm-flash`）
-- `routing.aliases`：调用名到实际 mock provider 的映射
+- `models.default`：请求未指定 model 时的默认模型（默认 `llm-flash`）
+- `models.routing.aliases`：调用名到实际 mock provider 的映射
 
 管理 API（`/v0`）：
 
@@ -73,7 +90,7 @@ cargo run -- --config-dir ./config
 - 鉴权：若 `server.admin_auth.enabled: true`，需 `Authorization: Bearer <admin_key>`
 - 变更生效：修改配置/模型/脚本后需手动调用 `POST /v0/reload`，接口带防抖保护
 
-`routing.aliases` 结构：
+`models.routing.aliases` 结构：
 
 - `name`：调用名（对外 model 名）
 - `providers`：后端 mock 列表（来自 `config/models/*.yaml` 的 `id`）

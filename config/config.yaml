@@ -8,21 +8,20 @@ server:
     api_key: "sk-admin-xxx"
 
 response:
-  reasoning_mode: "both" # append | field | both
+  reasoning_mode: "field" # none | prefix | field | both
   include_usage: true
   schema_strict: true
 
-models_dir: "models"
-default_model: "llm-flash"
-
-routing:
-  aliases:
-    - name: "llm-flash"
-      providers: ["llm-flash"]
-      strategy: "round_robin"
-    - name: "llm-pro"
-      providers: ["llm-pro"]
-      strategy: "round_robin"
-    - name: "llm-ultra"
-      providers: ["llm-ultra"]
-      strategy: "round_robin"
+models:
+  default: "llm-flash"
+  routing:
+    aliases:
+      - name: "llm-flash"
+        providers: ["llm-flash"]
+        strategy: "round_robin"
+      - name: "llm-pro"
+        providers: ["llm-pro"]
+        strategy: "round_robin"
+      - name: "llm-ultra"
+        providers: ["llm-ultra"]
+        strategy: "round_robin"

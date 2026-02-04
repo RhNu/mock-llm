@@ -21,3 +21,5 @@ anyhow = "1.0.100"
 rquickjs = { version = "0.11.0", features = ["loader"] }
 rquickjs-serde = "0.4.0"
 regex = "1.12.3"
+include_dir = "0.7.4"
+mime_guess = "2.0.5"

@@ -8,6 +8,7 @@ mod scripting;
 mod state;
 mod streaming;
 mod types;
+mod ui;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -118,6 +119,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .route("/v1/chat/completions", axum::routing::post(chat_completions))
         .route("/v1/models", axum::routing::get(list_models))
         .route("/v1/models/{id}", axum::routing::get(get_model))
+        .merge(ui::router())
         .with_state(state.clone())
         .layer(trace_layer)
         .layer(PropagateRequestIdLayer::new(request_id_header.clone()))

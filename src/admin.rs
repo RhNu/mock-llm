@@ -10,7 +10,16 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::config::{AdminAuthConfig, GlobalConfig, ModelConfig, ResponseConfig, RoutingConfig, validate_model_config};
+use crate::config::{
+    AdminAuthConfig,
+    GlobalConfig,
+    ModelConfig,
+    ModelsConfig,
+    ResponseConfig,
+    RoutingConfig,
+    parse_global_config,
+    validate_model_config,
+};
 use crate::error::AppError;
 use crate::kernel::KernelState;
 use crate::state::AppState;
@@ -98,8 +107,7 @@ pub async fn list_models(
 ) -> Result<Response, AppError> {
     let kernel = state.kernel.current();
     check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
-    let disk_config = read_config(&kernel.config_path)?;
-    let dir = models_dir_from_config(&kernel, &disk_config);
+    let dir = models_dir(&kernel);
     let mut models = Vec::new();
     for path in list_yaml_files(&dir)? {
         let text = fs::read_to_string(&path)
@@ -120,8 +128,7 @@ pub async fn get_model(
     let kernel = state.kernel.current();
     check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
     ensure_simple_name(&id)?;
-    let disk_config = read_config(&kernel.config_path)?;
-    let dir = models_dir_from_config(&kernel, &disk_config);
+    let dir = models_dir(&kernel);
     let path = model_path_from_dir(&dir, &id);
     let text = fs::read_to_string(&path)
         .map_err(|e| AppError::internal(format!("read model failed: {e}")))?;
@@ -146,8 +153,7 @@ pub async fn put_model(
     let mut model = model;
     model.id = id.clone();
 
-    let disk_config = read_config(&kernel.config_path)?;
-    let dir = models_dir_from_config(&kernel, &disk_config);
+    let dir = models_dir(&kernel);
     let scripts_dir = scripts_dir(&kernel);
     validate_model_config(&model, &scripts_dir, &model_path_from_dir(&dir, &id))
         .map_err(|e| AppError::bad_request(format!("invalid model: {e}")))?;
@@ -168,8 +174,7 @@ pub async fn delete_model(
     let kernel = state.kernel.current();
     check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
     ensure_simple_name(&id)?;
-    let disk_config = read_config(&kernel.config_path)?;
-    let dir = models_dir_from_config(&kernel, &disk_config);
+    let dir = models_dir(&kernel);
     let path = model_path_from_dir(&dir, &id);
     if path.exists() {
         fs::remove_file(&path)
@@ -303,35 +308,27 @@ fn check_admin_auth(admin: &AdminAuthConfig, headers: &HeaderMap) -> Result<(), 
 pub struct PublicConfig {
     pub response: ResponseConfig,
     #[serde(default)]
-    pub routing: RoutingConfig,
-    pub models_dir: String,
-    pub default_model: Option<String>,
+    pub models: ModelsConfig,
 }
 
 impl PublicConfig {
     fn from_global(config: &GlobalConfig) -> Self {
         PublicConfig {
             response: config.response.clone(),
-            routing: config.routing.clone(),
-            models_dir: config.models_dir.clone(),
-            default_model: config.default_model.clone(),
+            models: config.models.clone(),
         }
     }
 
     fn apply_to(&self, config: &mut GlobalConfig) {
         config.response = self.response.clone();
-        config.routing = self.routing.clone();
-        config.models_dir = self.models_dir.clone();
-        config.default_model = self.default_model.clone();
+        config.models = self.models.clone();
     }
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConfigPatch {
     pub response: Option<ResponseConfig>,
-    pub routing: Option<RoutingConfig>,
-    pub models_dir: Option<String>,
-    pub default_model: Option<Option<String>>,
+    pub models: Option<ModelsConfigPatch>,
 }
 
 impl ConfigPatch {
@@ -339,16 +336,21 @@ impl ConfigPatch {
         if let Some(response) = &self.response {
             config.response = response.clone();
         }
-        if let Some(routing) = &self.routing {
-            config.routing = routing.clone();
-        }
-        if let Some(models_dir) = &self.models_dir {
-            config.models_dir = models_dir.clone();
-        }
-        if let Some(default_model) = &self.default_model {
-            config.default_model = default_model.clone();
+        if let Some(models) = &self.models {
+            if let Some(default) = &models.default {
+                config.models.default = default.clone();
+            }
+            if let Some(routing) = &models.routing {
+                config.models.routing = routing.clone();
+            }
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelsConfigPatch {
+    pub default: Option<Option<String>>,
+    pub routing: Option<RoutingConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -359,7 +361,7 @@ pub struct ScriptUpdate {
 fn read_config(path: &Path) -> Result<GlobalConfig, AppError> {
     let text = fs::read_to_string(path)
         .map_err(|e| AppError::internal(format!("read config failed: {e}")))?;
-    serde_yaml_ng::from_str(&text)
+    parse_global_config(&text)
         .map_err(|e| AppError::internal(format!("invalid config yaml: {e}")))
 }
 
@@ -371,8 +373,8 @@ fn write_config(path: &Path, config: &GlobalConfig) -> Result<(), AppError> {
     Ok(())
 }
 
-fn models_dir_from_config(kernel: &KernelState, config: &GlobalConfig) -> PathBuf {
-    kernel.config_dir.join(&config.models_dir)
+fn models_dir(kernel: &KernelState) -> PathBuf {
+    kernel.config_dir.join("models")
 }
 
 fn scripts_dir(kernel: &KernelState) -> PathBuf {

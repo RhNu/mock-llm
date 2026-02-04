@@ -135,7 +135,7 @@ impl KernelState {
         }
 
         let mut aliases = HashMap::new();
-        for alias in &global.routing.aliases {
+        for alias in &global.models.routing.aliases {
             aliases.insert(alias.name.clone(), alias.clone());
         }
 
