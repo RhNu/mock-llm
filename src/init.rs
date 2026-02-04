@@ -7,9 +7,9 @@ const DEFAULT_CONFIG: &str = include_str!("../config/config.yaml");
 const DEFAULT_MODEL_FLASH: &str = include_str!("../config/models/llm-flash.yaml");
 const DEFAULT_MODEL_PRO: &str = include_str!("../config/models/llm-pro.yaml");
 const DEFAULT_MODEL_ULTRA: &str = include_str!("../config/models/llm-ultra.yaml");
-const DEFAULT_SCRIPT_EXAMPLE: &str = include_str!("../config/models/scripts/example.js");
-const DEFAULT_SCRIPT_INIT: &str = include_str!("../config/models/scripts/init.js");
-const DEFAULT_TYPES: &str = include_str!("../config/models/scripts/types.d.ts");
+const DEFAULT_SCRIPT_EXAMPLE: &str = include_str!("../config/scripts/example.js");
+const DEFAULT_SCRIPT_INIT: &str = include_str!("../config/scripts/init.js");
+const DEFAULT_TYPES: &str = include_str!("../config/scripts/types.d.ts");
 
 pub fn ensure_config_layout(config_dir: &Path) -> anyhow::Result<()> {
     if !config_dir.exists() {
@@ -23,7 +23,7 @@ pub fn ensure_config_layout(config_dir: &Path) -> anyhow::Result<()> {
             .with_context(|| format!("failed to create {}", models_dir.display()))?;
     }
 
-    let scripts_dir = models_dir.join("scripts");
+    let scripts_dir = config_dir.join("scripts");
     if !scripts_dir.exists() {
         fs::create_dir_all(&scripts_dir)
             .with_context(|| format!("failed to create {}", scripts_dir.display()))?;

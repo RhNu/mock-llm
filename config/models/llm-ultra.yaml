@@ -4,7 +4,7 @@ created: 1738675200
 type: "script"
 
 script:
-  file: "scripts/example.js"
-  init_file: "scripts/init.js"
+  file: "example.js"
+  init_file: "init.js"
   timeout_ms: 1500
   stream_chunk_chars: 24

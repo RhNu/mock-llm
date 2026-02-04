@@ -9,8 +9,9 @@ use rand::prelude::IndexedRandom;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::config::{AliasStrategy, LoadedModel, ModelKind, ReasoningMode, ReplyStrategy};
+use crate::config::{AliasStrategy, GlobalConfig, LoadedModel, ModelKind, ReasoningMode, ReplyStrategy};
 use crate::error::AppError;
+use crate::kernel::{CompiledRule, CompiledSpec, KernelState, MatchCache};
 use crate::scripting::run_script;
 use crate::state::AppState;
 use crate::streaming::build_sse_stream;
@@ -24,7 +25,8 @@ pub async fn chat_completions(
     headers: HeaderMap,
     Json(raw): Json<Value>,
 ) -> Result<Response, AppError> {
-    check_auth(&state, &headers)?;
+    let kernel = state.kernel.current();
+    check_auth(&kernel.config, &headers)?;
 
     let req: ChatRequest = serde_json::from_value(raw.clone())
         .map_err(|_| AppError::bad_request("invalid request body"))?;
@@ -39,15 +41,15 @@ pub async fn chat_completions(
     let model_id = req
         .model
         .clone()
-        .or_else(|| state.config.default_model.clone())
+        .or_else(|| kernel.config.default_model.clone())
         .ok_or_else(|| AppError::bad_request("model is required"))?;
 
-    let alias = state
+    let alias = kernel
         .aliases
         .get(&model_id)
         .ok_or_else(|| AppError::not_found("model not found"))?;
-    let provider_id = select_provider(alias, &state.alias_rr)?;
-    let model = state
+    let provider_id = select_provider(alias, &kernel.alias_rr)?;
+    let model = kernel
         .models
         .get(&provider_id)
         .ok_or_else(|| AppError::not_found("provider not found"))?
@@ -65,9 +67,9 @@ pub async fn chat_completions(
         extra: req.extra.clone(),
     };
 
-    let reply = generate_reply(&state, &model, raw.clone(), parsed.clone()).await?;
+    let reply = generate_reply(&kernel, &model, raw.clone(), parsed.clone()).await?;
 
-    let reasoning_mode = state.config.response.reasoning_mode.clone();
+    let reasoning_mode = kernel.config.response.reasoning_mode.clone();
     let (content_out, reasoning_field) = apply_reasoning(
         reply.content,
         reply.reasoning.clone(),
@@ -75,7 +77,7 @@ pub async fn chat_completions(
     );
 
     let usage = reply.usage.or_else(|| {
-        if state.config.response.include_usage {
+        if kernel.config.response.include_usage {
             Some(estimate_usage(&messages, &content_out))
         } else {
             None
@@ -125,12 +127,13 @@ pub async fn chat_completions(
 }
 
 pub async fn list_models(State(state): State<AppState>) -> Result<Response, AppError> {
+    let kernel = state.kernel.current();
     let mut data = Vec::new();
-    let mut keys: Vec<String> = state.aliases.keys().cloned().collect();
+    let mut keys: Vec<String> = kernel.aliases.keys().cloned().collect();
     keys.sort();
     for id in keys {
-        if let Some(alias) = state.aliases.get(&id) {
-            data.push(model_object(alias, &state.models));
+        if let Some(alias) = kernel.aliases.get(&id) {
+            data.push(model_object(alias, &kernel.models));
         }
     }
     let body = json!({
@@ -144,11 +147,12 @@ pub async fn get_model(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
-    let alias = state
+    let kernel = state.kernel.current();
+    let alias = kernel
         .aliases
         .get(&id)
         .ok_or_else(|| AppError::not_found("model not found"))?;
-    Ok(Json(model_object(alias, &state.models)).into_response())
+    Ok(Json(model_object(alias, &kernel.models)).into_response())
 }
 
 fn model_object(alias: &crate::config::AliasConfig, providers: &HashMap<String, LoadedModel>) -> Value {
@@ -166,11 +170,11 @@ fn model_object(alias: &crate::config::AliasConfig, providers: &HashMap<String, 
     })
 }
 
-fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), AppError> {
-    if !state.config.server.auth.enabled {
+fn check_auth(config: &GlobalConfig, headers: &HeaderMap) -> Result<(), AppError> {
+    if !config.server.auth.enabled {
         return Ok(());
     }
-    let expected = state.config.server.auth.api_key.as_str();
+    let expected = config.server.auth.api_key.as_str();
     let auth = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -183,7 +187,7 @@ fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), AppError> {
 }
 
 async fn generate_reply(
-    state: &AppState,
+    kernel: &KernelState,
     model: &LoadedModel,
     raw: Value,
     parsed: ParsedRequest,
@@ -196,11 +200,11 @@ async fn generate_reply(
                 .as_ref()
                 .ok_or_else(|| AppError::internal("static config missing"))?;
             let user_text = last_user_text(&parsed.messages);
-            let cache = state.match_cache.get(&model.config.id);
+            let cache = kernel.match_cache.get(&model.config.id);
             let reply = select_static_reply(
                 &model.config.id,
                 cfg,
-                &state.rr_state,
+                &kernel.rr_state,
                 cache,
                 user_text.as_deref(),
             )?;
@@ -218,7 +222,7 @@ async fn generate_reply(
                     now: Utc::now().to_rfc3339(),
                 },
             };
-            let engine = state
+            let engine = kernel
                 .engines
                 .get(&model.config.id)
                 .ok_or_else(|| AppError::internal("script engine missing"))?;
@@ -237,8 +241,8 @@ async fn generate_reply(
 fn select_static_reply(
     model_id: &str,
     cfg: &crate::config::StaticConfig,
-    rr_state: &std::sync::Arc<std::sync::Mutex<HashMap<String, usize>>>,
-    match_cache: Option<&crate::state::MatchCache>,
+    rr_state: &std::sync::Mutex<HashMap<String, usize>>,
+    match_cache: Option<&MatchCache>,
     user_text: Option<&str>,
 ) -> Result<Reply, AppError> {
     let reply = match cfg.strategy {
@@ -259,7 +263,7 @@ fn select_static_reply(
 fn select_round_robin(
     model_id: &str,
     cfg: &crate::config::StaticConfig,
-    rr_state: &std::sync::Arc<std::sync::Mutex<HashMap<String, usize>>>,
+    rr_state: &std::sync::Mutex<HashMap<String, usize>>,
 ) -> crate::config::StaticReply {
     let mut map = rr_state.lock().expect("rr lock poisoned");
     let idx = map.entry(model_id.to_string()).or_insert(0);
@@ -280,7 +284,7 @@ fn select_random(
 
 fn select_provider(
     alias: &crate::config::AliasConfig,
-    alias_rr: &std::sync::Arc<std::sync::Mutex<HashMap<String, usize>>>,
+    alias_rr: &std::sync::Mutex<HashMap<String, usize>>,
 ) -> Result<String, AppError> {
     match alias.strategy {
         AliasStrategy::RoundRobin => {
@@ -305,7 +309,7 @@ fn select_provider(
 
 fn select_match_reply(
     cfg: &crate::config::StaticConfig,
-    match_cache: Option<&crate::state::MatchCache>,
+    match_cache: Option<&MatchCache>,
     user_text: Option<&str>,
 ) -> Option<crate::config::StaticReply> {
     let cache = match_cache?;
@@ -321,10 +325,10 @@ fn select_match_reply(
         .and_then(|idx| cfg.replies.get(idx).cloned())
 }
 
-fn compiled_matches(spec: &crate::state::CompiledSpec, text: &str) -> bool {
+fn compiled_matches(spec: &CompiledSpec, text: &str) -> bool {
     spec.rules.iter().any(|rule| match rule {
-        crate::state::CompiledRule::Plain(s) => text.contains(s),
-        crate::state::CompiledRule::Regex(re) => re.is_match(text),
+        CompiledRule::Plain(s) => text.contains(s),
+        CompiledRule::Regex(re) => re.is_match(text),
     })
 }
 

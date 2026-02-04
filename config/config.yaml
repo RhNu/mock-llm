@@ -3,6 +3,9 @@ server:
   auth:
     enabled: false
     api_key: "sk-xxx"
+  admin_auth:
+    enabled: false
+    api_key: "sk-admin-xxx"
 
 response:
   reasoning_mode: "both" # append | field | both

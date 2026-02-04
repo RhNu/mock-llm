@@ -9,8 +9,10 @@ config/
     llm-flash.yaml
     llm-pro.yaml
     llm-ultra.yaml
-    scripts/
-      example.js
+  scripts/
+    example.js
+    init.js
+    types.d.ts
 ```
 
 ## 启动方式
@@ -21,6 +23,19 @@ cargo run -- --config-dir ./config
 
 ## 端点
 
+- `GET /v0/status`
+- `POST /v0/reload`
+- `GET /v0/config`
+- `PUT /v0/config`
+- `PATCH /v0/config`
+- `GET /v0/models`
+- `GET /v0/models/{id}`
+- `PUT /v0/models/{id}`
+- `DELETE /v0/models/{id}`
+- `GET /v0/scripts`
+- `GET /v0/scripts/{name}`
+- `PUT /v0/scripts/{name}`
+- `DELETE /v0/scripts/{name}`
 - `POST /v1/chat/completions`
 - `GET /v1/models`
 - `GET /v1/models/{id}`
@@ -32,11 +47,31 @@ cargo run -- --config-dir ./config
 - `server.listen`：监听地址
 - `server.auth.enabled`：是否启用鉴权
 - `server.auth.api_key`：Bearer token
+- `server.admin_auth.enabled`：是否启用管理端点鉴权
+- `server.admin_auth.api_key`：管理 API Bearer token
 - `response.reasoning_mode`：`append | field | both`
 - `response.include_usage`：是否返回 usage（估算）
 - `models_dir`：模型目录（相对 `config/`）
 - `default_model`：请求未指定 model 时的默认模型（默认 `llm-flash`）
 - `routing.aliases`：调用名到实际 mock provider 的映射
+
+管理 API（`/v0`）：
+
+- `GET /v0/status`：返回配置与模型摘要状态
+- `POST /v0/reload`：从磁盘重载配置与模型
+- `GET /v0/config`：获取可编辑配置（不含 `server`）
+- `PUT /v0/config`：全量替换可编辑配置
+- `PATCH /v0/config`：局部更新可编辑配置
+- `GET /v0/models`：列出模型配置
+- `GET /v0/models/{id}`：读取模型配置
+- `PUT /v0/models/{id}`：新建/替换模型配置（`id` 必须与文件名一致）
+- `DELETE /v0/models/{id}`：删除模型配置文件
+- `GET /v0/scripts`：列出脚本文件
+- `GET /v0/scripts/{name}`：读取脚本内容
+- `PUT /v0/scripts/{name}`：新建/替换脚本内容
+- `DELETE /v0/scripts/{name}`：删除脚本文件
+- 鉴权：若 `server.admin_auth.enabled: true`，需 `Authorization: Bearer <admin_key>`
+- 变更生效：修改配置/模型/脚本后需手动调用 `POST /v0/reload`，接口带防抖保护
 
 `routing.aliases` 结构：
 
@@ -47,6 +82,7 @@ cargo run -- --config-dir ./config
 每个模型一个 YAML（`config/models/<name>.yaml`）：
 
 - `id`：模型 ID（请求用）
+- 文件名必须与 `id` 一致（只支持一层文件）
 - `owned_by`：所有者
 - `created`：Unix 时间戳，可选
 - `type`：`static` 或 `script`
@@ -66,8 +102,8 @@ cargo run -- --config-dir ./config
 
 `script` 模型：
 
-- `file`：脚本路径（相对模型文件目录）
-- `init_file`：可选初始化脚本（仅执行一次）
+- `file`：脚本路径（相对 `config/scripts/`）
+- `init_file`：可选初始化脚本（相对 `config/scripts/`，仅执行一次）
 - `timeout_ms`：执行超时
 - `stream_chunk_chars`：流式分片大小（字符）
 
@@ -75,7 +111,7 @@ cargo run -- --config-dir ./config
 
 脚本需导出 ES module 函数（支持本地 `import`，路径相对脚本文件）。可选 `init_file` 会先执行一次，可在 `globalThis` 上挂载共享数据。
 
-脚本类型定义：`config/models/scripts/types.d.ts`
+脚本类型定义：`config/scripts/types.d.ts`
 
 示例脚本已包含：
 

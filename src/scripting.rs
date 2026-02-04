@@ -7,6 +7,7 @@ use rquickjs::loader::{FileResolver, ScriptLoader};
 use rquickjs::{Context, Function, Module, Persistent, Runtime, Value};
 use rquickjs_serde::{from_value, to_value};
 use tokio::sync::oneshot;
+use tracing::{error, info};
 
 use crate::error::AppError;
 use crate::types::{ScriptInput, ScriptOutput};
@@ -44,9 +45,9 @@ impl ScriptEngine {
                 .map_err(|e| AppError::internal(format!("read init script failed: {e}")))?;
             let init_name = relative_module_name(init_script_path);
             context.with(|ctx| {
-                let init_module = Module::evaluate(ctx.clone(), init_name, init_source)
+                let promise = Module::evaluate(ctx.clone(), init_name, init_source)
                     .map_err(|e| AppError::internal(format!("init module compile failed: {e}")))?;
-                init_module
+                promise
                     .finish::<()>()
                     .map_err(|e| AppError::internal(format!("init module eval failed: {e}")))?;
                 Ok::<(), AppError>(())
@@ -56,17 +57,60 @@ impl ScriptEngine {
         let script_source = std::fs::read_to_string(script_path)
             .map_err(|e| AppError::internal(format!("read script failed: {e}")))?;
         let module_name = relative_module_name(script_path);
+        let module_name_log = module_name.clone();
+        let looks_es = looks_like_es_module(&script_source);
+        let script_source_fallback = script_source.clone();
+
+        info!(
+            "loading script: path={}, module={}",
+            script_path.display(),
+            module_name_log
+        );
 
         let handle = context.with(|ctx| {
-            let module = Module::evaluate(ctx.clone(), module_name, script_source)
-                .map_err(|e| AppError::internal(format!("module compile failed: {e}")))?;
-            module
+            let module = Module::declare(ctx.clone(), module_name.clone(), script_source)
+                .map_err(|e| AppError::internal(format!("module declare failed: {e}")))?;
+            let (module, promise) = module
+                .eval()
+                .map_err(|e| AppError::internal(format!("module eval failed: {e}")))?;
+            promise
                 .finish::<()>()
                 .map_err(|e| AppError::internal(format!("module eval failed: {e}")))?;
-            let func: Function = module
-                .get("handle")
-                .map_err(|e| AppError::internal(format!("missing export handle: {e}")))?;
-            Ok(Persistent::save(&ctx, func))
+
+            match module.get::<_, Function>("handle") {
+                Ok(func) => Ok(Persistent::save(&ctx, func)),
+                Err(err) => {
+                    let exported = module
+                        .namespace()
+                        .ok()
+                        .and_then(|ns| {
+                            ns.keys::<String>()
+                                .collect::<rquickjs::Result<Vec<String>>>()
+                                .ok()
+                        })
+                        .unwrap_or_default();
+                    error!(
+                        "missing export handle: {}, exports={:?}, path={}",
+                        err,
+                        exported,
+                        script_path.display()
+                    );
+
+                    // Optional fallback for legacy scripts without ES module exports.
+                    if !looks_es {
+                        if let Err(eval_err) = ctx.eval::<(), _>(script_source_fallback.clone()) {
+                            error!("legacy script eval failed: {}", eval_err);
+                        } else if let Ok(func) = ctx.globals().get::<_, Function>("handle") {
+                            info!("using global handle() fallback");
+                            return Ok(Persistent::save(&ctx, func));
+                        }
+                    }
+
+                    Err(AppError::internal(format!(
+                        "missing export handle: {err}. expected: `export function handle(input) {{ ... }}`"
+                    )))
+                }
+            }
         })?;
 
         Ok(ScriptEngine {
@@ -108,6 +152,20 @@ fn normalize_module_path(path: &str) -> String {
     path.replace('\\', "/")
 }
 
+fn looks_like_es_module(source: &str) -> bool {
+    // Best-effort check to avoid evaluating module code as a classic script.
+    for line in source.lines() {
+        let line = line.trim_start();
+        if line.starts_with("//") || line.starts_with("/*") {
+            continue;
+        }
+        if line.starts_with("export") || line.starts_with("import") {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn start_engine(
     script_path: PathBuf,
     init_path: Option<PathBuf>,
@@ -123,6 +181,11 @@ pub fn start_engine(
                 engine
             }
             Err(err) => {
+                error!(
+                    "script engine init failed: {:?} (path={})",
+                    err,
+                    script_path.display()
+                );
                 let _ = ready_tx.send(Err(err));
                 return;
             }

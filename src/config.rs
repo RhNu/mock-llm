@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::Context;
 use chrono::Utc;
@@ -21,10 +21,20 @@ pub struct GlobalConfig {
 pub struct ServerConfig {
     pub listen: String,
     pub auth: AuthConfig,
+    #[serde(default)]
+    pub admin_auth: AdminAuthConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AuthConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct AdminAuthConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
@@ -91,7 +101,7 @@ pub struct StaticReply {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum ReplyStrategy {
     RoundRobin,
     Random,
@@ -135,7 +145,7 @@ pub struct AliasConfig {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum AliasStrategy {
     RoundRobin,
     Random,
@@ -171,8 +181,9 @@ pub fn load_app_config(config_dir: &Path) -> anyhow::Result<(GlobalConfig, Vec<L
         serde_yaml_ng::from_str(&config_text).context("failed to parse config.yaml")?;
 
     let models_dir = config_dir.join(&global.models_dir);
+    let scripts_dir = config_dir.join("scripts");
     let mut model_files = Vec::new();
-    collect_yaml_files(&models_dir, &mut model_files)
+    collect_yaml_files_flat(&models_dir, &mut model_files)
         .with_context(|| format!("failed to scan {}", models_dir.display()))?;
 
     let mut ids = HashSet::new();
@@ -183,19 +194,32 @@ pub fn load_app_config(config_dir: &Path) -> anyhow::Result<(GlobalConfig, Vec<L
         let mut model: ModelConfig = serde_yaml_ng::from_str(&text)
             .with_context(|| format!("invalid yaml {}", file.display()))?;
 
+        let stem = file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| anyhow::anyhow!("invalid model filename {}", file.display()))?;
+
         if model.id.trim().is_empty() {
             anyhow::bail!("model id empty in {}", file.display());
+        }
+        if model.id != stem {
+            anyhow::bail!(
+                "model id {} does not match filename {} in {}",
+                model.id,
+                stem,
+                file.display()
+            );
         }
         if !ids.insert(model.id.clone()) {
             anyhow::bail!("duplicate model id {}", model.id);
         }
 
-        let base_dir = file
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| models_dir.clone());
+        let base_dir = match model.kind {
+            ModelKind::Script => scripts_dir.clone(),
+            ModelKind::Static => models_dir.clone(),
+        };
 
-        validate_model(&model, &base_dir, &file)?;
+        validate_model_config(&model, &scripts_dir, &file)?;
 
         let created = model.created.unwrap_or_else(|| Utc::now().timestamp());
         model.created = Some(created);
@@ -230,7 +254,11 @@ pub fn load_app_config(config_dir: &Path) -> anyhow::Result<(GlobalConfig, Vec<L
     Ok((global, models))
 }
 
-fn validate_model(model: &ModelConfig, base_dir: &Path, path: &Path) -> anyhow::Result<()> {
+pub fn validate_model_config(
+    model: &ModelConfig,
+    scripts_dir: &Path,
+    path: &Path,
+) -> anyhow::Result<()> {
     match model.kind {
         ModelKind::Static => {
             let cfg = model
@@ -263,7 +291,8 @@ fn validate_model(model: &ModelConfig, base_dir: &Path, path: &Path) -> anyhow::
                 .script
                 .as_ref()
                 .with_context(|| format!("script model missing config in {}", path.display()))?;
-            let script_path = base_dir.join(&cfg.file);
+            ensure_relative_path(&cfg.file, "script.file", path)?;
+            let script_path = scripts_dir.join(&cfg.file);
             if !script_path.exists() {
                 anyhow::bail!(
                     "script file not found: {} (from {})",
@@ -272,7 +301,8 @@ fn validate_model(model: &ModelConfig, base_dir: &Path, path: &Path) -> anyhow::
                 );
             }
             if let Some(init_file) = &cfg.init_file {
-                let init_path = base_dir.join(init_file);
+                ensure_relative_path(init_file, "script.init_file", path)?;
+                let init_path = scripts_dir.join(init_file);
                 if !init_path.exists() {
                     anyhow::bail!(
                         "init script file not found: {} (from {})",
@@ -317,7 +347,7 @@ fn validate_aliases(
     Ok(())
 }
 
-fn collect_yaml_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+fn collect_yaml_files_flat(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if !dir.exists() {
         return Ok(());
     }
@@ -325,11 +355,38 @@ fn collect_yaml_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()>
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            collect_yaml_files(&path, out)?;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("nested model directories not supported: {}", path.display()),
+            ));
         } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             if ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml") {
                 out.push(path);
             }
+        }
+    }
+    Ok(())
+}
+
+fn ensure_relative_path(value: &str, field: &str, config_path: &Path) -> anyhow::Result<()> {
+    let path = Path::new(value);
+    if path.is_absolute() {
+        anyhow::bail!(
+            "{} must be a relative path in {}",
+            field,
+            config_path.display()
+        );
+    }
+    for comp in path.components() {
+        match comp {
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                anyhow::bail!(
+                    "{} must be a relative path in {}",
+                    field,
+                    config_path.display()
+                );
+            }
+            _ => {}
         }
     }
     Ok(())
