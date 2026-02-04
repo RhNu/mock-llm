@@ -1,4 +1,4 @@
-export type Stop = string | string[];
+﻿export type Stop = string | string[];
 
 export interface Message {
   role: string;
@@ -27,10 +27,62 @@ export interface ScriptMeta {
   now: string;
 }
 
+export interface ModelMeta {
+  description?: string;
+  tags?: string[];
+}
+
+export type PickStrategy = "round_robin" | "random" | "weighted";
+
+export interface StaticReply {
+  content: string;
+  reasoning?: string;
+  weight?: number;
+}
+
+export type Condition =
+  | { contains: string; case?: "sensitive" | "insensitive" }
+  | { equals: string; case?: "sensitive" | "insensitive" }
+  | { starts_with: string; case?: "sensitive" | "insensitive" }
+  | { ends_with: string; case?: "sensitive" | "insensitive" }
+  | { regex: string };
+
+export interface RuleWhen {
+  any?: Condition[];
+  all?: Condition[];
+  none?: Condition[];
+}
+
+export interface ModelRule {
+  default: boolean;
+  when?: RuleWhen;
+  pick?: PickStrategy;
+  replies: StaticReply[];
+}
+
+export interface ModelConfig {
+  id: string;
+  owned_by: string;
+  created: number;
+  kind: "static" | "script";
+  meta?: ModelMeta;
+  static?: {
+    pick?: PickStrategy;
+    stream_chunk_chars?: number;
+    rules: ModelRule[];
+  };
+  script?: {
+    file: string;
+    init_file?: string;
+    timeout_ms: number;
+    stream_chunk_chars?: number;
+  };
+}
+
 export interface ScriptInput {
   request: unknown;
   parsed: ParsedRequest;
-  model: unknown;
+  model: ModelConfig;
   meta: ScriptMeta;
 }
 

@@ -21,16 +21,14 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
 use crate::admin::{
-    delete_model as admin_delete_model,
     delete_script as admin_delete_script,
     get_config as admin_get_config,
-    get_model as admin_get_model,
+    get_models_bundle as admin_get_models_bundle,
     get_script as admin_get_script,
-    list_models as admin_list_models,
     list_scripts as admin_list_scripts,
     patch_config as admin_patch_config,
     put_config as admin_put_config,
-    put_model as admin_put_model,
+    put_models_bundle as admin_put_models_bundle,
     put_script as admin_put_script,
     reload,
     status,
@@ -102,12 +100,9 @@ async fn main() -> Result<(), anyhow::Error> {
                 .put(admin_put_config)
                 .patch(admin_patch_config),
         )
-        .route("/v0/models", axum::routing::get(admin_list_models))
         .route(
-            "/v0/models/{id}",
-            axum::routing::get(admin_get_model)
-                .put(admin_put_model)
-                .delete(admin_delete_model),
+            "/v0/models",
+            axum::routing::get(admin_get_models_bundle).put(admin_put_models_bundle),
         )
         .route("/v0/scripts", axum::routing::get(admin_list_scripts))
         .route(

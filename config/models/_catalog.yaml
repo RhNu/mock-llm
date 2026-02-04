@@ -1,0 +1,24 @@
+schema: 2
+default_model: "llm-flash"
+aliases:
+  - name: "llm-proxy"
+    providers: ["llm-flash", "llm-pro"]
+    strategy: "round_robin"
+
+defaults:
+  owned_by: "llm-lab"
+  static:
+    stream_chunk_chars: 16
+  script:
+    timeout_ms: 1500
+    stream_chunk_chars: 24
+
+templates:
+  - name: "base-static"
+    kind: "static"
+    static:
+      pick: "round_robin"
+  - name: "base-script"
+    kind: "script"
+    script:
+      timeout_ms: 1500

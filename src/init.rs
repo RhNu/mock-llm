@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 
 const DEFAULT_CONFIG: &str = include_str!("../config/config.yaml");
+const DEFAULT_MODEL_CATALOG: &str = include_str!("../config/models/_catalog.yaml");
 const DEFAULT_MODEL_FLASH: &str = include_str!("../config/models/llm-flash.yaml");
 const DEFAULT_MODEL_PRO: &str = include_str!("../config/models/llm-pro.yaml");
 const DEFAULT_MODEL_ULTRA: &str = include_str!("../config/models/llm-ultra.yaml");
@@ -30,6 +31,7 @@ pub fn ensure_config_layout(config_dir: &Path) -> anyhow::Result<()> {
     }
 
     write_if_missing(config_dir.join("config.yaml"), DEFAULT_CONFIG)?;
+    write_if_missing(models_dir.join("_catalog.yaml"), DEFAULT_MODEL_CATALOG)?;
     write_if_missing(models_dir.join("llm-flash.yaml"), DEFAULT_MODEL_FLASH)?;
     write_if_missing(models_dir.join("llm-pro.yaml"), DEFAULT_MODEL_PRO)?;
     write_if_missing(models_dir.join("llm-ultra.yaml"), DEFAULT_MODEL_ULTRA)?;
@@ -48,6 +50,7 @@ fn write_if_missing(path: PathBuf, content: &str) -> anyhow::Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
+    let content = content.strip_prefix('\u{FEFF}').unwrap_or(content);
     fs::write(&path, content).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }

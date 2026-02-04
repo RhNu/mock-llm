@@ -6,6 +6,7 @@
 config/
   config.yaml
   models/
+    _catalog.yaml
     llm-flash.yaml
     llm-pro.yaml
     llm-ultra.yaml
@@ -47,9 +48,7 @@ If `server.admin_auth.enabled: true`, enter the admin token when prompted.
 - `PUT /v0/config`
 - `PATCH /v0/config`
 - `GET /v0/models`
-- `GET /v0/models/{id}`
-- `PUT /v0/models/{id}`
-- `DELETE /v0/models/{id}`
+- `PUT /v0/models`
 - `GET /v0/scripts`
 - `GET /v0/scripts/{name}`
 - `PUT /v0/scripts/{name}`
@@ -69,8 +68,7 @@ If `server.admin_auth.enabled: true`, enter the admin token when prompted.
 - `server.admin_auth.api_key`：管理 API Bearer token
 - `response.reasoning_mode`：`none | prefix | field | both`（兼容 `append`）
 - `response.include_usage`：是否返回 usage（估算）
-- `models.default`：请求未指定 model 时的默认模型（默认 `llm-flash`）
-- `models.routing.aliases`：调用名到实际 mock provider 的映射
+- `models/_catalog.yaml`：默认模型与别名路由（`default_model` / `aliases` / `defaults` / `templates`）
 
 管理 API（`/v0`）：
 
@@ -79,10 +77,8 @@ If `server.admin_auth.enabled: true`, enter the admin token when prompted.
 - `GET /v0/config`：获取可编辑配置（不含 `server`）
 - `PUT /v0/config`：全量替换可编辑配置
 - `PATCH /v0/config`：局部更新可编辑配置
-- `GET /v0/models`：列出模型配置
-- `GET /v0/models/{id}`：读取模型配置
-- `PUT /v0/models/{id}`：新建/替换模型配置（`id` 必须与文件名一致）
-- `DELETE /v0/models/{id}`：删除模型配置文件
+- `GET /v0/models`：读取模型打包配置（catalog + models，支持 JSON / YAML）
+- `PUT /v0/models`：覆盖模型打包配置（支持 JSON / YAML）
 - `GET /v0/scripts`：列出脚本文件
 - `GET /v0/scripts/{name}`：读取脚本内容
 - `PUT /v0/scripts/{name}`：新建/替换脚本内容
@@ -90,7 +86,7 @@ If `server.admin_auth.enabled: true`, enter the admin token when prompted.
 - 鉴权：若 `server.admin_auth.enabled: true`，需 `Authorization: Bearer <admin_key>`
 - 变更生效：修改配置/模型/脚本后需手动调用 `POST /v0/reload`，接口带防抖保护
 
-`models.routing.aliases` 结构：
+`models/_catalog.yaml` 中 `aliases` 结构：
 
 - `name`：调用名（对外 model 名）
 - `providers`：后端 mock 列表（来自 `config/models/*.yaml` 的 `id`）
@@ -174,3 +170,18 @@ docker compose up --build
 ## Windows 打包
 
 `.github/workflows/build-binaries.yml` 会在 `main` 分支与 `v*` 标签构建 Windows 发行包，输出 `mock-llm-windows-x86_64.zip`（包含 `mock-llm.exe` 与默认 `config/`）。
+
+## Model Config v2 (schema: 2)
+
+- `config/config.yaml`: server + response only.
+- `config/models/_catalog.yaml`: `schema`, `default_model`, `aliases`, `defaults`, `templates`.
+- `config/models/<id>.yaml`: `schema`, `id`, `kind`, `extends`, `meta`, `static` / `script`.
+
+Static rules:
+- `rules` is ordered; exactly one rule must set `default: true` and it must not include `when`.
+- `when` supports `any` / `all` / `none` with conditions: `contains` / `equals` / `starts_with` / `ends_with` / `regex`.
+- Replies support optional `weight` for weighted pick.
+
+Admin API:
+- `GET /v0/models` returns the full bundle (JSON or YAML).
+- `PUT /v0/models` replaces the full bundle (JSON or YAML).

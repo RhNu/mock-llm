@@ -1,17 +1,19 @@
-use std::collections::HashMap;
+﻿use std::collections::HashMap;
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
+use rand::distr::Distribution;
+use rand::distr::weighted::WeightedIndex;
 use rand::prelude::IndexedRandom;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::config::{AliasStrategy, GlobalConfig, LoadedModel, ModelKind, ReasoningMode, ReplyStrategy};
+use crate::config::{AliasStrategy, GlobalConfig, LoadedModel, ModelKind, PickStrategy, StaticReply};
 use crate::error::AppError;
-use crate::kernel::{CompiledRule, CompiledSpec, KernelState, MatchCache};
+use crate::kernel::{KernelState, MatchCache, compiled_matches};
 use crate::scripting::run_script;
 use crate::state::AppState;
 use crate::streaming::build_sse_stream;
@@ -41,14 +43,10 @@ pub async fn chat_completions(
     let model_id = req
         .model
         .clone()
-        .or_else(|| kernel.config.models.default.clone())
+        .or_else(|| kernel.catalog.default_model.clone())
         .ok_or_else(|| AppError::bad_request("model is required"))?;
 
-    let alias = kernel
-        .aliases
-        .get(&model_id)
-        .ok_or_else(|| AppError::not_found("model not found"))?;
-    let provider_id = select_provider(alias, &kernel.alias_rr)?;
+    let provider_id = resolve_provider_id(&kernel, &model_id)?;
     let model = kernel
         .models
         .get(&provider_id)
@@ -129,11 +127,16 @@ pub async fn chat_completions(
 pub async fn list_models(State(state): State<AppState>) -> Result<Response, AppError> {
     let kernel = state.kernel.current();
     let mut data = Vec::new();
-    let mut keys: Vec<String> = kernel.aliases.keys().cloned().collect();
-    keys.sort();
-    for id in keys {
-        if let Some(alias) = kernel.aliases.get(&id) {
-            data.push(model_object(alias, &kernel.models));
+    let mut ids: Vec<String> = kernel.aliases.keys().cloned().collect();
+    for id in kernel.models.keys() {
+        if !kernel.aliases.contains_key(id) {
+            ids.push(id.clone());
+        }
+    }
+    ids.sort();
+    for id in ids {
+        if let Some(obj) = model_object_for_id(&id, &kernel) {
+            data.push(obj);
         }
     }
     let body = json!({
@@ -148,14 +151,34 @@ pub async fn get_model(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let kernel = state.kernel.current();
-    let alias = kernel
-        .aliases
-        .get(&id)
+    let obj = model_object_for_id(&id, &kernel)
         .ok_or_else(|| AppError::not_found("model not found"))?;
-    Ok(Json(model_object(alias, &kernel.models)).into_response())
+    Ok(Json(obj).into_response())
 }
 
-fn model_object(alias: &crate::config::AliasConfig, providers: &HashMap<String, LoadedModel>) -> Value {
+fn model_object_for_id(id: &str, kernel: &KernelState) -> Option<Value> {
+    if let Some(alias) = kernel.aliases.get(id) {
+        return Some(model_object(alias, &kernel.models));
+    }
+    kernel
+        .models
+        .get(id)
+        .map(|model| model_object_for_model(id, model))
+}
+
+fn model_object_for_model(id: &str, model: &LoadedModel) -> Value {
+    json!({
+        "id": id,
+        "object": "model",
+        "created": model.created,
+        "owned_by": model.config.owned_by.clone()
+    })
+}
+
+fn model_object(
+    alias: &crate::config::AliasConfig,
+    providers: &HashMap<String, LoadedModel>,
+) -> Value {
     let (created, owned_by) = alias
         .providers
         .first()
@@ -168,6 +191,16 @@ fn model_object(alias: &crate::config::AliasConfig, providers: &HashMap<String, 
         "created": created,
         "owned_by": owned_by
     })
+}
+
+fn resolve_provider_id(kernel: &KernelState, model_id: &str) -> Result<String, AppError> {
+    if let Some(alias) = kernel.aliases.get(model_id) {
+        return select_provider(alias, &kernel.alias_rr);
+    }
+    if kernel.models.contains_key(model_id) {
+        return Ok(model_id.to_string());
+    }
+    Err(AppError::not_found("model not found"))
 }
 
 fn check_auth(config: &GlobalConfig, headers: &HeaderMap) -> Result<(), AppError> {
@@ -192,6 +225,9 @@ async fn generate_reply(
     raw: Value,
     parsed: ParsedRequest,
 ) -> Result<Reply, AppError> {
+    let request_id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+
     match model.config.kind {
         ModelKind::Static => {
             let cfg = model
@@ -207,6 +243,8 @@ async fn generate_reply(
                 &kernel.rr_state,
                 cache,
                 user_text.as_deref(),
+                &request_id,
+                &now,
             )?;
             Ok(reply)
         }
@@ -218,8 +256,8 @@ async fn generate_reply(
                 parsed,
                 model: model_value,
                 meta: ScriptMeta {
-                    request_id: Uuid::new_v4().to_string(),
-                    now: Utc::now().to_rfc3339(),
+                    request_id,
+                    now,
                 },
             };
             let engine = kernel
@@ -244,40 +282,94 @@ fn select_static_reply(
     rr_state: &std::sync::Mutex<HashMap<String, usize>>,
     match_cache: Option<&MatchCache>,
     user_text: Option<&str>,
+    request_id: &str,
+    now: &str,
 ) -> Result<Reply, AppError> {
-    let reply = match cfg.strategy {
-        ReplyStrategy::Match => select_match_reply(cfg, match_cache, user_text)
-            .unwrap_or_else(|| select_round_robin(model_id, cfg, rr_state)),
-        ReplyStrategy::RoundRobin => select_round_robin(model_id, cfg, rr_state),
-        ReplyStrategy::Random => select_random(cfg)?,
+    let rule_idx = select_rule_index(cfg, match_cache, user_text)
+        .ok_or_else(|| AppError::internal("no matching rule"))?;
+    let rule = cfg
+        .rules
+        .get(rule_idx)
+        .ok_or_else(|| AppError::internal("rule index out of range"))?;
+
+    let pick = rule.pick.or(cfg.pick).unwrap_or(PickStrategy::RoundRobin);
+    let reply = match pick {
+        PickStrategy::RoundRobin => select_round_robin(model_id, rule_idx, rule, rr_state),
+        PickStrategy::Random => select_random(rule)?,
+        PickStrategy::Weighted => select_weighted(rule)?,
     };
 
+    let ctx = InterpolationContext {
+        last_user: user_text,
+        model_id,
+        request_id,
+        now,
+    };
+    let (content, reasoning) = interpolate_reply(&reply, &ctx);
+
     Ok(Reply {
-        content: reply.content,
-        reasoning: reply.reasoning,
+        content,
+        reasoning,
         finish_reason: "stop".to_string(),
         usage: None,
     })
 }
 
+fn select_rule_index(
+    cfg: &crate::config::StaticConfig,
+    match_cache: Option<&MatchCache>,
+    user_text: Option<&str>,
+) -> Option<usize> {
+    let cache = match_cache?;
+    if let Some(text) = user_text {
+        for (idx, compiled) in cache.compiled.iter().enumerate() {
+            let Some(when) = compiled.as_ref() else {
+                continue;
+            };
+            if compiled_matches(when, text) {
+                return Some(idx);
+            }
+        }
+    }
+    cache.default_index.or_else(|| {
+        if cfg.rules.len() == 1 { Some(0) } else { None }
+    })
+}
+
 fn select_round_robin(
     model_id: &str,
-    cfg: &crate::config::StaticConfig,
+    rule_index: usize,
+    rule: &crate::config::ModelRule,
     rr_state: &std::sync::Mutex<HashMap<String, usize>>,
-) -> crate::config::StaticReply {
+) -> StaticReply {
+    let key = format!("{}:{}", model_id, rule_index);
     let mut map = rr_state.lock().expect("rr lock poisoned");
-    let idx = map.entry(model_id.to_string()).or_insert(0);
-    let reply = cfg.replies[*idx % cfg.replies.len()].clone();
-    *idx = (*idx + 1) % cfg.replies.len();
+    let idx = map.entry(key).or_insert(0);
+    let reply = rule.replies[*idx % rule.replies.len()].clone();
+    *idx = (*idx + 1) % rule.replies.len();
     reply
 }
 
-fn select_random(
-    cfg: &crate::config::StaticConfig,
-) -> Result<crate::config::StaticReply, AppError> {
+fn select_random(rule: &crate::config::ModelRule) -> Result<StaticReply, AppError> {
     let mut rng = rand::rng();
-    cfg.replies
+    rule.replies
         .choose(&mut rng)
+        .cloned()
+        .ok_or_else(|| AppError::internal("no static reply"))
+}
+
+fn select_weighted(rule: &crate::config::ModelRule) -> Result<StaticReply, AppError> {
+    let weights: Vec<u64> = rule
+        .replies
+        .iter()
+        .map(|reply| reply.weight.unwrap_or(1).max(1))
+        .collect();
+    let dist = WeightedIndex::new(&weights)
+        .map_err(|_| AppError::internal("invalid weight configuration"))?;
+    let mut rng = rand::rng();
+    let idx = dist.sample(&mut rng);
+    rule.replies
+        .get(idx)
         .cloned()
         .ok_or_else(|| AppError::internal("no static reply"))
 }
@@ -307,29 +399,29 @@ fn select_provider(
     }
 }
 
-fn select_match_reply(
-    cfg: &crate::config::StaticConfig,
-    match_cache: Option<&MatchCache>,
-    user_text: Option<&str>,
-) -> Option<crate::config::StaticReply> {
-    let cache = match_cache?;
-    let text = user_text?;
-    for (idx, compiled) in cache.compiled.iter().enumerate() {
-        let Some(spec) = compiled else { continue };
-        if compiled_matches(spec, text) {
-            return cfg.replies.get(idx).cloned();
-        }
-    }
-    cache
-        .fallback_index
-        .and_then(|idx| cfg.replies.get(idx).cloned())
+struct InterpolationContext<'a> {
+    last_user: Option<&'a str>,
+    model_id: &'a str,
+    request_id: &'a str,
+    now: &'a str,
 }
 
-fn compiled_matches(spec: &CompiledSpec, text: &str) -> bool {
-    spec.rules.iter().any(|rule| match rule {
-        CompiledRule::Plain(s) => text.contains(s),
-        CompiledRule::Regex(re) => re.is_match(text),
-    })
+fn interpolate_reply(reply: &StaticReply, ctx: &InterpolationContext<'_>) -> (String, Option<String>) {
+    let content = interpolate_value(&reply.content, ctx);
+    let reasoning = reply
+        .reasoning
+        .as_ref()
+        .map(|value| interpolate_value(value, ctx));
+    (content, reasoning)
+}
+
+fn interpolate_value(value: &str, ctx: &InterpolationContext<'_>) -> String {
+    let mut out = value.replace("{{model.id}}", ctx.model_id);
+    out = out.replace("{{now}}", ctx.now);
+    out = out.replace("{{request_id}}", ctx.request_id);
+    let last_user = ctx.last_user.unwrap_or("");
+    out = out.replace("{{last_user}}", last_user);
+    out
 }
 
 fn last_user_text(messages: &[crate::types::Message]) -> Option<String> {
@@ -348,13 +440,17 @@ fn last_user_text(messages: &[crate::types::Message]) -> Option<String> {
 fn apply_reasoning(
     content: String,
     reasoning: Option<String>,
-    mode: ReasoningMode,
+    mode: crate::config::ReasoningMode,
 ) -> (String, Option<String>) {
     match (reasoning, mode) {
-        (Some(r), ReasoningMode::Prefix) => (format!("<think>{r}</think>\n{content}"), None),
-        (Some(r), ReasoningMode::Field) => (content, Some(r)),
-        (Some(r), ReasoningMode::Both) => (format!("<think>{r}</think>\n{content}"), Some(r)),
-        (_, ReasoningMode::None) => (content, None),
+        (Some(r), crate::config::ReasoningMode::Prefix) => {
+            (format!("<think>{r}</think>\n{content}"), None)
+        }
+        (Some(r), crate::config::ReasoningMode::Field) => (content, Some(r)),
+        (Some(r), crate::config::ReasoningMode::Both) => {
+            (format!("<think>{r}</think>\n{content}"), Some(r))
+        }
+        (_, crate::config::ReasoningMode::None) => (content, None),
         (None, _) => (content, None),
     }
 }

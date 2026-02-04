@@ -1,9 +1,10 @@
+﻿use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, header};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::{DateTime, Utc};
@@ -13,12 +14,11 @@ use serde_json::{Value, json};
 use crate::config::{
     AdminAuthConfig,
     GlobalConfig,
-    ModelConfig,
-    ModelsConfig,
+    ModelCatalog,
+    ModelFile,
     ResponseConfig,
-    RoutingConfig,
     parse_global_config,
-    validate_model_config,
+    validate_bundle,
 };
 use crate::error::AppError;
 use crate::kernel::KernelState;
@@ -101,86 +101,68 @@ pub async fn patch_config(
     Ok(Json(PublicConfig::from_global(&config)).into_response())
 }
 
-pub async fn list_models(
+pub async fn get_models_bundle(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let kernel = state.kernel.current();
     check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
-    let dir = models_dir(&kernel);
-    let mut models = Vec::new();
-    for path in list_yaml_files(&dir)? {
-        let text = fs::read_to_string(&path)
-            .map_err(|e| AppError::internal(format!("read model failed: {e}")))?;
-        let model: ModelConfig = serde_yaml_ng::from_str(&text)
-            .map_err(|e| AppError::bad_request(format!("invalid model yaml: {e}")))?;
-        models.push(model);
-    }
-    models.sort_by(|a, b| a.id.cmp(&b.id));
-    Ok(Json(json!({ "data": models })).into_response())
-}
+    let bundle = read_models_bundle(&kernel)?;
 
-pub async fn get_model(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<Response, AppError> {
-    let kernel = state.kernel.current();
-    check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
-    ensure_simple_name(&id)?;
-    let dir = models_dir(&kernel);
-    let path = model_path_from_dir(&dir, &id);
-    let text = fs::read_to_string(&path)
-        .map_err(|e| AppError::internal(format!("read model failed: {e}")))?;
-    let model: ModelConfig = serde_yaml_ng::from_str(&text)
-        .map_err(|e| AppError::bad_request(format!("invalid model yaml: {e}")))?;
-    Ok(Json(model).into_response())
-}
+    let accept = headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
 
-pub async fn put_model(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    axum::extract::Path(id): axum::extract::Path<String>,
-    Json(model): Json<ModelConfig>,
-) -> Result<Response, AppError> {
-    let kernel = state.kernel.current();
-    check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
-    ensure_simple_name(&id)?;
-    if !model.id.is_empty() && model.id != id {
-        return Err(AppError::bad_request("model.id must match path id"));
+    if accept.contains("yaml") {
+        let yaml = serde_yaml_ng::to_string(&bundle)
+            .map_err(|e| AppError::internal(format!("serialize models failed: {e}")))?;
+        let mut res = Response::new(yaml.into());
+        res.headers_mut().insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("text/yaml; charset=utf-8"),
+        );
+        return Ok(res);
     }
 
-    let mut model = model;
-    model.id = id.clone();
+    Ok(Json(bundle).into_response())
+}
 
-    let dir = models_dir(&kernel);
+pub async fn put_models_bundle(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: String,
+) -> Result<Response, AppError> {
+    let kernel = state.kernel.current();
+    check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
+
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let bundle: ModelBundle = if content_type.contains("yaml") {
+        serde_yaml_ng::from_str(&body)
+            .map_err(|e| AppError::bad_request(format!("invalid yaml: {e}")))?
+    } else {
+        match serde_json::from_str(&body) {
+            Ok(value) => value,
+            Err(json_err) => serde_yaml_ng::from_str(&body).map_err(|yaml_err| {
+                AppError::bad_request(format!(
+                    "invalid json: {json_err}; invalid yaml: {yaml_err}"
+                ))
+            })?,
+        }
+    };
+
+    let models_dir = models_dir(&kernel);
     let scripts_dir = scripts_dir(&kernel);
-    validate_model_config(&model, &scripts_dir, &model_path_from_dir(&dir, &id))
-        .map_err(|e| AppError::bad_request(format!("invalid model: {e}")))?;
+    validate_bundle(&bundle.catalog, &bundle.models, &models_dir, &scripts_dir)
+        .map_err(|e| AppError::bad_request(format!("invalid model bundle: {e}")))?;
 
-    let yaml = serde_yaml_ng::to_string(&model)
-        .map_err(|e| AppError::internal(format!("serialize model failed: {e}")))?;
-    let path = model_path_from_dir(&dir, &id);
-    ensure_dir(path.parent())?;
-    fs::write(&path, yaml).map_err(|e| AppError::internal(format!("write model failed: {e}")))?;
-    Ok(Json(model).into_response())
-}
+    write_models_bundle(&models_dir, &bundle)?;
 
-pub async fn delete_model(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<Response, AppError> {
-    let kernel = state.kernel.current();
-    check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
-    ensure_simple_name(&id)?;
-    let dir = models_dir(&kernel);
-    let path = model_path_from_dir(&dir, &id);
-    if path.exists() {
-        fs::remove_file(&path)
-            .map_err(|e| AppError::internal(format!("delete model failed: {e}")))?;
-    }
-    Ok(Json(json!({ "ok": true })).into_response())
+    Ok(Json(bundle).into_response())
 }
 
 pub async fn list_scripts(
@@ -253,6 +235,81 @@ pub async fn delete_script(
     Ok(Json(json!({ "ok": true })).into_response())
 }
 
+fn read_models_bundle(kernel: &KernelState) -> Result<ModelBundle, AppError> {
+    let dir = models_dir(kernel);
+    let catalog_path = dir.join("_catalog.yaml");
+    let catalog_text = fs::read_to_string(&catalog_path)
+        .map_err(|e| AppError::internal(format!("read catalog failed: {e}")))?;
+    let catalog: ModelCatalog = serde_yaml_ng::from_str(&catalog_text)
+        .map_err(|e| AppError::bad_request(format!("invalid catalog yaml: {e}")))?;
+
+    let mut models = Vec::new();
+    for path in list_yaml_files(&dir)? {
+        let text = fs::read_to_string(&path)
+            .map_err(|e| AppError::internal(format!("read model failed: {e}")))?;
+        let model: ModelFile = serde_yaml_ng::from_str(&text)
+            .map_err(|e| AppError::bad_request(format!("invalid model yaml: {e}")))?;
+        models.push(model);
+    }
+
+    models.sort_by(|a, b| a.id.as_deref().unwrap_or("").cmp(b.id.as_deref().unwrap_or("")));
+    Ok(ModelBundle { catalog, models })
+}
+
+fn write_models_bundle(models_dir: &Path, bundle: &ModelBundle) -> Result<(), AppError> {
+    ensure_dir(Some(models_dir))?;
+    let mut ids = HashSet::new();
+    for model in &bundle.models {
+        let id = model
+            .id
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| AppError::bad_request("model id missing"))?;
+        ensure_simple_name(id)?;
+        if !ids.insert(id.to_string()) {
+            return Err(AppError::bad_request(format!("duplicate model id {id}")));
+        }
+    }
+
+    let catalog_yaml = serde_yaml_ng::to_string(&bundle.catalog)
+        .map_err(|e| AppError::internal(format!("serialize catalog failed: {e}")))?;
+    write_atomic(&models_dir.join("_catalog.yaml"), &catalog_yaml)?;
+
+    for model in &bundle.models {
+        let id = model.id.as_ref().unwrap().trim();
+        let mut output = model.clone();
+        output.id = Some(id.to_string());
+        let yaml = serde_yaml_ng::to_string(&output)
+            .map_err(|e| AppError::internal(format!("serialize model failed: {e}")))?;
+        write_atomic(&models_dir.join(format!("{id}.yaml")), &yaml)?;
+    }
+
+    let existing = list_yaml_files(models_dir)?;
+    for path in existing {
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        if !ids.contains(stem) {
+            fs::remove_file(&path)
+                .map_err(|e| AppError::internal(format!("delete model failed: {e}")))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn write_atomic(path: &Path, content: &str) -> Result<(), AppError> {
+    let tmp_path = path.with_extension("tmp");
+    fs::write(&tmp_path, content)
+        .map_err(|e| AppError::internal(format!("write temp failed: {e}")))?;
+    if path.exists() {
+        fs::remove_file(path)
+            .map_err(|e| AppError::internal(format!("remove old file failed: {e}")))?;
+    }
+    fs::rename(&tmp_path, path)
+        .map_err(|e| AppError::internal(format!("replace file failed: {e}")))?;
+    Ok(())
+}
+
 fn build_status(kernel: &KernelState, started_at: Instant) -> Value {
     let uptime_sec = started_at.elapsed().as_secs();
 
@@ -307,28 +364,23 @@ fn check_admin_auth(admin: &AdminAuthConfig, headers: &HeaderMap) -> Result<(), 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublicConfig {
     pub response: ResponseConfig,
-    #[serde(default)]
-    pub models: ModelsConfig,
 }
 
 impl PublicConfig {
     fn from_global(config: &GlobalConfig) -> Self {
         PublicConfig {
             response: config.response.clone(),
-            models: config.models.clone(),
         }
     }
 
     fn apply_to(&self, config: &mut GlobalConfig) {
         config.response = self.response.clone();
-        config.models = self.models.clone();
     }
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConfigPatch {
     pub response: Option<ResponseConfig>,
-    pub models: Option<ModelsConfigPatch>,
 }
 
 impl ConfigPatch {
@@ -336,26 +388,18 @@ impl ConfigPatch {
         if let Some(response) = &self.response {
             config.response = response.clone();
         }
-        if let Some(models) = &self.models {
-            if let Some(default) = &models.default {
-                config.models.default = default.clone();
-            }
-            if let Some(routing) = &models.routing {
-                config.models.routing = routing.clone();
-            }
-        }
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ModelsConfigPatch {
-    pub default: Option<Option<String>>,
-    pub routing: Option<RoutingConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ScriptUpdate {
     pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelBundle {
+    pub catalog: ModelCatalog,
+    pub models: Vec<ModelFile>,
 }
 
 fn read_config(path: &Path) -> Result<GlobalConfig, AppError> {
@@ -381,10 +425,6 @@ fn scripts_dir(kernel: &KernelState) -> PathBuf {
     kernel.config_dir.join("scripts")
 }
 
-fn model_path_from_dir(dir: &Path, id: &str) -> PathBuf {
-    dir.join(format!("{id}.yaml"))
-}
-
 fn script_path(kernel: &KernelState, name: &str) -> PathBuf {
     scripts_dir(kernel).join(name)
 }
@@ -404,7 +444,8 @@ fn list_yaml_files(dir: &Path) -> Result<Vec<PathBuf>, AppError> {
     if !dir.exists() {
         return Ok(out);
     }
-    for entry in fs::read_dir(dir).map_err(|e| AppError::internal(format!("read models dir failed: {e}")))? {
+    for entry in fs::read_dir(dir)
+        .map_err(|e| AppError::internal(format!("read models dir failed: {e}")))? {
         let entry = entry.map_err(|e| AppError::internal(format!("read models dir failed: {e}")))?;
         let path = entry.path();
         if path.is_dir() {
@@ -415,6 +456,11 @@ fn list_yaml_files(dir: &Path) -> Result<Vec<PathBuf>, AppError> {
         }
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             if ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    if stem.starts_with('_') {
+                        continue;
+                    }
+                }
                 out.push(path);
             }
         }

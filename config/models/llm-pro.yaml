@@ -1,19 +1,25 @@
+schema: 2
 id: "llm-pro"
-owned_by: "llm-lab"
-created: 1738675200
-type: "static"
-
+extends: ["base-static"]
+meta:
+  owned_by: "llm-lab"
+  created: 1738675200
+kind: "static"
 static:
-  replies:
-    - content: "抱歉，我无法提供该信息。"
-      reasoning: "Match-based safe reply."
-      match:
-        - regex: "/secret|password|token/i"
-        - "密码"
-    - content: "当前时间是2026年。"
-      match:
-        - regex: "/time|date/i"
-        - "时间"
-    - content: "我是 llm-pro，一款由llm-lab研发的高性能模型。"
-  strategy: "match"
-  stream_chunk_chars: 16
+  rules:
+    - when:
+        any:
+          - contains: "secret"
+          - regex: "/password|token/i"
+      replies:
+        - content: "Sorry, I cannot help with that."
+          reasoning: "Match-based safe reply."
+    - when:
+        any:
+          - contains: "time"
+          - contains: "date"
+      replies:
+        - content: "Current time is {{now}}."
+    - default: true
+      replies:
+        - content: "I am llm-pro, a higher capability mock model."

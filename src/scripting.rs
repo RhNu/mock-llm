@@ -120,6 +120,18 @@ impl ScriptEngine {
         })
     }
 
+    fn shutdown(self) {
+        let ScriptEngine {
+            _runtime: runtime,
+            context,
+            handle,
+        } = self;
+        drop(handle);
+        drop(context);
+        runtime.run_gc();
+        drop(runtime);
+    }
+
     fn call(&self, input: ScriptInput) -> Result<ScriptOutput, AppError> {
         self.context.with(|ctx| {
             let func = self
@@ -194,6 +206,7 @@ pub fn start_engine(
             let result = engine.call(task.input);
             let _ = task.resp.send(result);
         }
+        engine.shutdown();
     });
 
     ready_rx
