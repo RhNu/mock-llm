@@ -24,10 +24,8 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: ui/pnpm-lock.yaml
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.28.2
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Build UI
         working-directory: ui
