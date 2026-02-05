@@ -15,7 +15,7 @@ export function handle(input) {
   // 模拟 "flash"：两条固定回复，按奇偶选择
   const flashReplies = [
     "你好。",
-    "我是 cognition-flash，由 llm-lab 提供的高速 mock 模型。",
+    "我是 cognition-flash，由 cognition 提供的高速模型。",
   ];
   const parity = (text.length + messages.length) % 2;
 

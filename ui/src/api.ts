@@ -14,6 +14,47 @@ export type AccessInfo = {
 };
 
 export function createApi(getToken: () => string, onUnauthorized: () => void) {
+  function extractErrorMessage(data: unknown, fallback: string) {
+    if (data && typeof data === "object") {
+      const record = data as Record<string, unknown>;
+      const rawError = record.error;
+      if (typeof rawError === "string") {
+        return rawError;
+      }
+      if (rawError && typeof rawError === "object") {
+        const errorRecord = rawError as Record<string, unknown>;
+        const message =
+          typeof errorRecord.message === "string"
+            ? errorRecord.message.trim()
+            : "";
+        if (message) {
+          return message;
+        }
+        if (Array.isArray(errorRecord.errors)) {
+          const items = errorRecord.errors
+            .filter((item) => typeof item === "string")
+            .map((item) => item.trim())
+            .filter(Boolean);
+          if (items.length) {
+            return items.join("; ");
+          }
+        }
+        try {
+          return JSON.stringify(errorRecord);
+        } catch {
+          return fallback;
+        }
+      }
+      if (typeof record.message === "string") {
+        return record.message;
+      }
+    }
+    if (typeof data === "string" && data.trim()) {
+      return data;
+    }
+    return fallback;
+  }
+
   function authHeaders() {
     const token = getToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -52,14 +93,7 @@ export function createApi(getToken: () => string, onUnauthorized: () => void) {
     }
 
     if (!res.ok) {
-      const message =
-        data &&
-        typeof data === "object" &&
-        "error" in (data as Record<string, unknown>)
-          ? String((data as Record<string, unknown>).error)
-          : typeof data === "string"
-            ? data
-            : res.statusText;
+      const message = extractErrorMessage(data, res.statusText);
       throw { status: res.status, message, details: data } as ApiError;
     }
 
@@ -103,14 +137,7 @@ export function createApi(getToken: () => string, onUnauthorized: () => void) {
     }
 
     if (!res.ok) {
-      const message =
-        data &&
-        typeof data === "object" &&
-        "error" in (data as Record<string, unknown>)
-          ? String((data as Record<string, unknown>).error)
-          : typeof data === "string"
-            ? data
-            : res.statusText;
+      const message = extractErrorMessage(data, res.statusText);
       throw { status: res.status, message, details: data } as ApiError;
     }
 

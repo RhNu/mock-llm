@@ -15,27 +15,20 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use axum::Router;
-use clap::Parser;
 use axum::http::{HeaderName, Request, Response};
+use clap::Parser;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
 use crate::admin::{
-    admin_auth_status,
-    delete_script as admin_delete_script,
-    get_config as admin_get_config,
-    get_models_bundle as admin_get_models_bundle,
-    get_script as admin_get_script,
-    list_scripts as admin_list_scripts,
+    admin_auth_status, delete_script as admin_delete_script, get_config as admin_get_config,
+    get_models_bundle as admin_get_models_bundle, get_script as admin_get_script,
     list_interactive_requests as admin_list_interactive_requests,
-    patch_config as admin_patch_config,
-    put_config as admin_put_config,
-    put_models_bundle as admin_put_models_bundle,
-    put_script as admin_put_script,
-    reload,
-    reply_interactive_request as admin_reply_interactive_request,
-    status,
+    list_scripts as admin_list_scripts, patch_config as admin_patch_config,
+    put_config as admin_put_config, put_models_bundle as admin_put_models_bundle,
+    put_script as admin_put_script, reload,
+    reply_interactive_request as admin_reply_interactive_request, status,
     stream_interactive as admin_stream_interactive,
 };
 use crate::handlers::{access_info, chat_completions, get_model, list_models};
@@ -89,14 +82,16 @@ async fn main() -> Result<(), anyhow::Error> {
                 request_id = %request_id
             )
         })
-        .on_response(|response: &Response<_>, latency: std::time::Duration, span: &tracing::Span| {
-            tracing::info!(
-                parent: span,
-                status = %response.status(),
-                latency_ms = latency.as_millis(),
-                "request completed"
-            );
-        });
+        .on_response(
+            |response: &Response<_>, latency: std::time::Duration, span: &tracing::Span| {
+                tracing::info!(
+                    parent: span,
+                    status = %response.status(),
+                    latency_ms = latency.as_millis(),
+                    "request completed"
+                );
+            },
+        );
 
     let app = Router::new()
         .route("/v0/admin/auth", axum::routing::get(admin_auth_status))
@@ -131,7 +126,10 @@ async fn main() -> Result<(), anyhow::Error> {
             "/v0/interactive/stream",
             axum::routing::get(admin_stream_interactive),
         )
-        .route("/v1/chat/completions", axum::routing::post(chat_completions))
+        .route(
+            "/v1/chat/completions",
+            axum::routing::post(chat_completions),
+        )
         .route("/v1/access", axum::routing::get(access_info))
         .route("/v1/models", axum::routing::get(list_models))
         .route("/v1/models/{id}", axum::routing::get(get_model))
@@ -143,7 +141,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     tracing::info!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    
+
     // Graceful shutdown handler
     let shutdown_signal = async {
         let ctrl_c = async {

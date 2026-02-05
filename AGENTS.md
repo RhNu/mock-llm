@@ -41,4 +41,4 @@
 ## 基本检查
 
 - `cargo check`
-- `pnpm build`
+- `pnpm typecheck`

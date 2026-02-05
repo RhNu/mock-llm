@@ -55,16 +55,20 @@ export default function InteractivePanel({
   }
 
   function updateDraft(id: string, patch: Partial<ReplyDraft>) {
-    setDrafts((prev) => ({
-      ...prev,
-      [id]: {
+    setDrafts((prev) => {
+      const base: ReplyDraft = prev[id] ?? {
         content: "",
         reasoning: "",
         finish_reason: "",
-        ...(prev[id] ?? {}),
-        ...patch,
-      },
-    }));
+      };
+      return {
+        ...prev,
+        [id]: {
+          ...base,
+          ...patch,
+        },
+      };
+    });
   }
 
   async function sendReply() {
@@ -141,11 +145,13 @@ export default function InteractivePanel({
     }
     connectingRef.current = true;
     try {
+      const authHeaders = api.getAuthHeaders() as Record<string, string>;
+      const headers: Record<string, string> = {
+        Accept: "text/event-stream",
+        ...authHeaders,
+      };
       const res = await fetch("/v0/interactive/stream", {
-        headers: {
-          Accept: "text/event-stream",
-          ...api.getAuthHeaders(),
-        },
+        headers,
         signal,
       });
       if (!res.ok || !res.body) {

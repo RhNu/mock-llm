@@ -22,4 +22,4 @@ static:
         - content: "当前时间是 {{now}}。"
     - default: true
       replies:
-        - content: "我是 cognition-pro，一个更高能力的 mock 模型。"
+        - content: "我是 cognition-pro，一个高级模型。"
