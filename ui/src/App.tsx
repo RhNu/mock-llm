@@ -3,6 +3,7 @@ import toast, { Toaster } from "react-hot-toast";
 import { ApiError, createApi } from "./api";
 import { createTranslator, getInitialLang, saveLang, Lang } from "./i18n";
 import LoginScreen from "./components/LoginScreen";
+import AccessScreen from "./components/AccessScreen";
 import CatalogPanel from "./panels/CatalogPanel";
 import ConfigPanel from "./panels/ConfigPanel";
 import ModelsPanel from "./panels/ModelsPanel";
@@ -14,6 +15,7 @@ type View = "status" | "config" | "catalog" | "models" | "scripts" | "interactiv
 
 export default function App() {
   const [view, setView] = useState<View>("status");
+  const [showAdmin, setShowAdmin] = useState(false);
 
   const [token, setToken] = useState(
     () => localStorage.getItem("admin_token") ?? "",
@@ -48,10 +50,13 @@ export default function App() {
       ),
     [authRequired, t, token],
   );
+  const publicApi = useMemo(() => createApi(() => "", () => {}), []);
 
   useEffect(() => {
-    checkAuth(token, true);
-  }, []);
+    if (showAdmin) {
+      checkAuth(token, true);
+    }
+  }, [showAdmin]);
 
   function notify(type: "success" | "error", text: string) {
     if (type === "success") {
@@ -186,6 +191,16 @@ export default function App() {
       hint: t("nav.interactive.hint"),
     },
   ];
+
+  if (!showAdmin) {
+    return (
+      <AccessScreen
+        api={publicApi}
+        onReveal={() => setShowAdmin(true)}
+        t={t}
+      />
+    );
+  }
 
   if (authStage !== "open") {
     return (

@@ -30,9 +30,16 @@ export default function InteractivePanel({
   const [requests, setRequests] = useState<InteractiveRequest[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
   const [drafts, setDrafts] = useState<Record<string, ReplyDraft>>({});
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
   const connectingRef = useRef(false);
+  const busy = loading || sending;
 
   async function loadRequests() {
+    if (busy) {
+      return;
+    }
+    setLoading(true);
     try {
       const data = await api.listInteractiveRequests();
       const next = Array.isArray(data?.requests) ? data.requests : [];
@@ -42,6 +49,8 @@ export default function InteractivePanel({
       }
     } catch (err) {
       onError(err, t("error.interactive.load"));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -72,6 +81,10 @@ export default function InteractivePanel({
       onNotify("error", t("error.interactive.empty"));
       return;
     }
+    if (busy) {
+      return;
+    }
+    setSending(true);
     try {
       await api.replyInteractiveRequest(selected.id, {
         content: draft.content.trim(),
@@ -92,6 +105,8 @@ export default function InteractivePanel({
       });
     } catch (err) {
       onError(err, t("error.interactive.reply"));
+    } finally {
+      setSending(false);
     }
   }
 
@@ -212,6 +227,7 @@ export default function InteractivePanel({
         <button
           className="rounded-full border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
           onClick={loadRequests}
+          disabled={busy}
         >
           {t("interactive.refresh")}
         </button>
@@ -322,8 +338,9 @@ export default function InteractivePanel({
                 <button
                   className="rounded-full bg-sky-400/90 px-4 py-2 text-xs font-semibold text-slate-900 transition hover:bg-sky-300"
                   onClick={sendReply}
+                  disabled={busy}
                 >
-                  {t("interactive.send")}
+                  {sending ? "..." : t("interactive.send")}
                 </button>
               </div>
             </div>

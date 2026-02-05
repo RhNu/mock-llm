@@ -185,4 +185,15 @@ Static rules:
 
 Admin API:
 - `GET /v0/models` returns the full bundle (JSON or YAML).
-- `PUT /v0/models` replaces the full bundle (JSON or YAML).
+- `PUT /v0/models` replaces the full bundle (JSON or YAML).
+
+## Prefix Models (/v1)
+
+- `/v1/chat/completions` 仅接受 `owned_by/model` 形式的模型名。
+- `/v1/models` 与 `/v1/models/{id}` 返回的 `id` 均为 `owned_by/model`。
+- `GET /v1/access` 返回公开访问信息：`{ enabled, api_key }`。
+
+## Catalog 扩展字段
+
+- `models/_catalog.yaml` 新增 `disabled_models`：禁用模型 ID 列表。
+- `aliases[]` 新增 `owned_by`（别名前缀，可选）与 `disabled`（禁用别名）。

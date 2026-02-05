@@ -18,6 +18,7 @@ export default function StatusPanel({
   const [status, setStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const busy = loading || reloading;
 
   async function load() {
     setLoading(true);
@@ -62,14 +63,14 @@ export default function StatusPanel({
           <button
             className="rounded-full border border-slate-700/60 bg-slate-900/50 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
             onClick={load}
-            disabled={loading}
+            disabled={busy}
           >
             {t("status.refresh")}
           </button>
           <button
             className="rounded-full bg-sky-400/90 px-4 py-2 text-xs font-semibold text-slate-900 transition hover:bg-sky-300"
             onClick={reload}
-            disabled={reloading}
+            disabled={busy}
           >
             {reloading ? t("status.reloading") : t("status.reload")}
           </button>

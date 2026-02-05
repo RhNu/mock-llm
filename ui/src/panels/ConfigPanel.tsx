@@ -22,6 +22,7 @@ export default function ConfigPanel({
   const [form, setForm] = useState<ConfigForm>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const busy = loading || saving;
 
   async function load() {
     setLoading(true);
@@ -64,14 +65,14 @@ export default function ConfigPanel({
           <button
             className="rounded-full border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
             onClick={load}
-            disabled={loading}
+            disabled={busy}
           >
             {t("config.refresh")}
           </button>
           <button
             className="rounded-full bg-sky-400/90 px-3 py-1.5 text-xs font-semibold text-slate-900 transition hover:bg-sky-300"
             onClick={save}
-            disabled={saving}
+            disabled={busy}
           >
             {saving ? "..." : t("config.save")}
           </button>

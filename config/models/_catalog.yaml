@@ -27,3 +27,5 @@ templates:
     kind: "script"
     script:
       timeout_ms: 1500
+
+disabled_models: []

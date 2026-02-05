@@ -26,8 +26,14 @@ export default function ScriptsPanel({
   const [name, setName] = useState("");
   const [content, setContent] = useState(SCRIPT_TEMPLATE);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const busy = loading || saving || deleting;
 
   async function loadList() {
+    if (busy) {
+      return;
+    }
     setLoading(true);
     try {
       const data = await api.listScripts();
@@ -59,12 +65,18 @@ export default function ScriptsPanel({
       onNotify("error", t("error.script.name"));
       return;
     }
+    if (busy) {
+      return;
+    }
+    setSaving(true);
     try {
       await api.putScript(name.trim(), content);
       await loadList();
       onNotify("success", t("notice.script.saved"));
     } catch (err) {
       onError(err, t("error.save"));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -76,6 +88,10 @@ export default function ScriptsPanel({
     if (!window.confirm(t("confirm.delete.script", { name }))) {
       return;
     }
+    if (busy) {
+      return;
+    }
+    setDeleting(true);
     try {
       await api.deleteScript(name.trim());
       await loadList();
@@ -83,6 +99,8 @@ export default function ScriptsPanel({
       onNotify("success", t("notice.script.deleted"));
     } catch (err) {
       onError(err, t("error.delete"));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -101,25 +119,28 @@ export default function ScriptsPanel({
           <button
             className="rounded-full border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
             onClick={loadList}
-            disabled={loading}
+            disabled={busy}
           >
             {t("scripts.refresh")}
           </button>
           <button
             className="rounded-full border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
             onClick={newScript}
+            disabled={busy}
           >
             {t("scripts.new")}
           </button>
           <button
             className="rounded-full bg-sky-400/90 px-3 py-1.5 text-xs font-semibold text-slate-900 transition hover:bg-sky-300"
             onClick={save}
+            disabled={busy}
           >
             {t("scripts.save")}
           </button>
           <button
             className="rounded-full border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-200"
             onClick={remove}
+            disabled={busy}
           >
             {t("scripts.delete")}
           </button>

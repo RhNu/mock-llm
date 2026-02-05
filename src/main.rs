@@ -38,7 +38,7 @@ use crate::admin::{
     status,
     stream_interactive as admin_stream_interactive,
 };
-use crate::handlers::{chat_completions, get_model, list_models};
+use crate::handlers::{access_info, chat_completions, get_model, list_models};
 use crate::init::ensure_config_layout;
 use crate::interactive::InteractiveHub;
 use crate::kernel::KernelHandle;
@@ -132,6 +132,7 @@ async fn main() -> Result<(), anyhow::Error> {
             axum::routing::get(admin_stream_interactive),
         )
         .route("/v1/chat/completions", axum::routing::post(chat_completions))
+        .route("/v1/access", axum::routing::get(access_info))
         .route("/v1/models", axum::routing::get(list_models))
         .route("/v1/models/{id}", axum::routing::get(get_model))
         .merge(ui::router())

@@ -80,6 +80,8 @@ pub struct ModelCatalog {
     #[serde(default)]
     pub defaults: ModelDefaults,
     #[serde(default)]
+    pub disabled_models: Vec<String>,
+    #[serde(default)]
     pub templates: Vec<ModelTemplate>,
 }
 
@@ -335,9 +337,13 @@ impl Default for PickStrategy {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AliasConfig {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owned_by: Option<String>,
     pub providers: Vec<String>,
     #[serde(default)]
     pub strategy: AliasStrategy,
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -358,6 +364,7 @@ pub struct LoadedModel {
     pub config: ModelConfig,
     pub created: i64,
     pub base_dir: PathBuf,
+    pub disabled: bool,
 }
 
 pub fn parse_global_config(config_text: &str) -> anyhow::Result<GlobalConfig> {
@@ -439,6 +446,9 @@ pub fn load_app_config(config_dir: &Path) -> anyhow::Result<(GlobalConfig, Model
         if !ids.insert(id.clone()) {
             anyhow::bail!("duplicate model id {}", id);
         }
+        if id.contains('/') {
+            anyhow::bail!("model id must not contain '/': {}", id);
+        }
 
         let resolved = resolve_model_file(
             model,
@@ -457,11 +467,17 @@ pub fn load_app_config(config_dir: &Path) -> anyhow::Result<(GlobalConfig, Model
             created: resolved.created,
             config: resolved,
             base_dir,
+            disabled: false,
         });
     }
 
     if models.is_empty() {
         anyhow::bail!("no model yaml found under {}", models_dir.display());
+    }
+
+    let disabled = collect_disabled_models(&catalog, &models, &models_dir)?;
+    for model in &mut models {
+        model.disabled = disabled.contains(model.config.id.as_str());
     }
 
     validate_aliases(&catalog.aliases, &models, &models_dir)?;
@@ -501,6 +517,9 @@ pub fn validate_bundle(
         if !ids.insert(id.clone()) {
             anyhow::bail!("duplicate model id {}", id);
         }
+        if id.contains('/') {
+            anyhow::bail!("model id must not contain '/': {}", id);
+        }
         let path = models_dir.join(format!("{id}.yaml"));
         let resolved = resolve_model_file(model.clone(), &id, catalog, scripts_dir, &path)?;
         loaded.push(LoadedModel {
@@ -510,11 +529,17 @@ pub fn validate_bundle(
                 ModelKind::Static | ModelKind::Interactive => models_dir.to_path_buf(),
             },
             config: resolved.clone(),
+            disabled: false,
         });
     }
 
     if loaded.is_empty() {
         anyhow::bail!("bundle models empty");
+    }
+
+    let disabled = collect_disabled_models(catalog, &loaded, models_dir)?;
+    for model in &mut loaded {
+        model.disabled = disabled.contains(model.config.id.as_str());
     }
 
     validate_aliases(&catalog.aliases, &loaded, models_dir)?;
@@ -630,9 +655,13 @@ pub fn resolve_model_file(
 
     let owned_by = meta
         .owned_by
-        .clone()
-        .filter(|value| !value.trim().is_empty())
+        .as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
         .unwrap_or_else(default_owned_by);
+    if owned_by.contains('/') {
+        anyhow::bail!("owned_by must not contain '/' in {}", path.display());
+    }
 
     let created = meta.created.unwrap_or_else(|| Utc::now().timestamp());
 
@@ -908,8 +937,20 @@ fn validate_aliases(
         if alias.name.trim().is_empty() {
             anyhow::bail!("alias name empty in {}", models_dir.display());
         }
+        if alias.name.contains('/') {
+            anyhow::bail!("alias name must not contain '/': {}", alias.name);
+        }
         if !alias_names.insert(alias.name.as_str()) {
             anyhow::bail!("duplicate alias name {}", alias.name);
+        }
+        if let Some(value) = alias.owned_by.as_ref() {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if trimmed.contains('/') {
+                anyhow::bail!("alias owned_by must not contain '/': {}", alias.name);
+            }
         }
         if alias.providers.is_empty() {
             anyhow::bail!("alias {} has empty providers", alias.name);
@@ -936,7 +977,49 @@ fn validate_default_model(catalog: &ModelCatalog, models: &[LoadedModel]) -> any
     if !model_ids.contains(default_model.as_str()) && !alias_ids.contains(default_model.as_str()) {
         anyhow::bail!("default_model {} not found", default_model);
     }
+    if let Some(model) = models.iter().find(|m| m.config.id == *default_model) {
+        if model.disabled {
+            anyhow::bail!("default_model {} is disabled", default_model);
+        }
+    }
+    if let Some(alias) = catalog.aliases.iter().find(|a| a.name == *default_model) {
+        if alias.disabled {
+            anyhow::bail!("default_model {} is disabled", default_model);
+        }
+        let has_enabled = alias.providers.iter().any(|id| {
+            models
+                .iter()
+                .find(|m| m.config.id == *id)
+                .map(|m| !m.disabled)
+                .unwrap_or(false)
+        });
+        if !has_enabled {
+            anyhow::bail!("default_model {} has no enabled providers", default_model);
+        }
+    }
     Ok(())
+}
+
+fn collect_disabled_models(
+    catalog: &ModelCatalog,
+    models: &[LoadedModel],
+    models_dir: &Path,
+) -> anyhow::Result<HashSet<String>> {
+    let model_ids: HashSet<&str> = models.iter().map(|m| m.config.id.as_str()).collect();
+    let mut out = HashSet::new();
+    for raw in &catalog.disabled_models {
+        let id = raw.trim();
+        if id.is_empty() {
+            anyhow::bail!("disabled model id empty in {}", models_dir.display());
+        }
+        if !model_ids.contains(id) {
+            anyhow::bail!("disabled model {} not found", id);
+        }
+        if !out.insert(id.to_string()) {
+            anyhow::bail!("duplicate disabled model {}", id);
+        }
+    }
+    Ok(out)
 }
 
 fn collect_yaml_files_flat(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -1041,6 +1124,7 @@ mod tests {
                 script: ScriptDefaults::default(),
                 interactive: InteractiveDefaults::default(),
             },
+            disabled_models: vec![],
             templates: vec![],
         };
 
@@ -1086,6 +1170,7 @@ mod tests {
             default_model: None,
             aliases: vec![],
             defaults: ModelDefaults::default(),
+            disabled_models: vec![],
             templates: vec![],
         };
 
@@ -1142,6 +1227,7 @@ mod tests {
                 script: ScriptDefaults::default(),
                 interactive: InteractiveDefaults::default(),
             },
+            disabled_models: vec![],
             templates: vec![ModelTemplate {
                 name: "base".to_string(),
                 kind: Some(ModelKind::Static),
@@ -1209,6 +1295,7 @@ reasoning_mode: both
             default_model: None,
             aliases: vec![],
             defaults: ModelDefaults::default(),
+            disabled_models: vec![],
             templates: vec![],
         };
 

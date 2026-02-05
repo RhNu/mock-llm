@@ -42,18 +42,21 @@ pub async fn chat_completions(
         return Err(AppError::bad_request("messages is required"));
     }
 
-    let model_id = req
-        .model
-        .clone()
-        .or_else(|| kernel.catalog.default_model.clone())
-        .ok_or_else(|| AppError::bad_request("model is required"))?;
+    let model_id = if let Some(value) = req.model.clone() {
+        if split_public_id(&value).is_none() {
+            return Err(AppError::bad_request("model must be prefix/name"));
+        }
+        value
+    } else {
+        let default_name = kernel
+            .catalog
+            .default_model
+            .clone()
+            .ok_or_else(|| AppError::bad_request("model is required"))?;
+        public_id_for_default(&kernel, &default_name)?
+    };
 
-    let provider_id = resolve_provider_id(&kernel, &model_id)?;
-    let model = kernel
-        .models
-        .get(&provider_id)
-        .ok_or_else(|| AppError::not_found("provider not found"))?
-        .clone();
+    let model = resolve_public_model(&kernel, &model_id)?;
 
     let stream = req.stream.unwrap_or(false);
     let parsed = ParsedRequest {
@@ -212,19 +215,27 @@ pub async fn chat_completions(
 
 pub async fn list_models(State(state): State<AppState>) -> Result<Response, AppError> {
     let kernel = state.kernel.current();
-    let mut data = Vec::new();
-    let mut ids: Vec<String> = kernel.aliases.keys().cloned().collect();
-    for id in kernel.models.keys() {
-        if !kernel.aliases.contains_key(id) {
-            ids.push(id.clone());
+    let mut entries: Vec<(String, Value)> = Vec::new();
+    for model in kernel.models.values() {
+        if model.disabled {
+            continue;
         }
+        let public_id = build_public_id(&model.config.owned_by, &model.config.id);
+        entries.push((public_id.clone(), model_object_for_model(&public_id, model)));
     }
-    ids.sort();
-    for id in ids {
-        if let Some(obj) = model_object_for_id(&id, &kernel) {
-            data.push(obj);
+    for alias in kernel.aliases.values() {
+        if alias.disabled {
+            continue;
         }
+        if !alias_has_enabled_provider(alias, &kernel.models) {
+            continue;
+        }
+        let owned_by = alias_owned_by(alias, &kernel.models);
+        let public_id = build_public_id(&owned_by, &alias.name);
+        entries.push((public_id.clone(), model_object_for_alias(&public_id, alias, &kernel.models)));
     }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let data: Vec<Value> = entries.into_iter().map(|(_, obj)| obj).collect();
     let body = json!({
         "object": "list",
         "data": data
@@ -237,54 +248,101 @@ pub async fn get_model(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let kernel = state.kernel.current();
-    let obj = model_object_for_id(&id, &kernel)
+    let obj = model_object_for_public_id(&id, &kernel)
         .ok_or_else(|| AppError::not_found("model not found"))?;
     Ok(Json(obj).into_response())
 }
 
-fn model_object_for_id(id: &str, kernel: &KernelState) -> Option<Value> {
-    if let Some(alias) = kernel.aliases.get(id) {
-        return Some(model_object(alias, &kernel.models));
-    }
-    kernel
-        .models
-        .get(id)
-        .map(|model| model_object_for_model(id, model))
+pub async fn access_info(
+    State(state): State<AppState>,
+) -> Result<Response, AppError> {
+    let kernel = state.kernel.current();
+    Ok(Json(json!({
+        "enabled": kernel.config.server.auth.enabled,
+        "api_key": kernel.config.server.auth.api_key
+    })).into_response())
 }
 
-fn model_object_for_model(id: &str, model: &LoadedModel) -> Value {
+fn model_object_for_public_id(id: &str, kernel: &KernelState) -> Option<Value> {
+    let (prefix, name) = split_public_id(id)?;
+    if let Some(alias) = kernel.aliases.get(name) {
+        if alias.disabled {
+            return None;
+        }
+        let alias_prefix = alias_owned_by(alias, &kernel.models);
+        if alias_prefix == prefix && alias_has_enabled_provider(alias, &kernel.models) {
+            return Some(model_object_for_alias(id, alias, &kernel.models));
+        }
+    }
+    kernel.models.get(name).and_then(|model| {
+        if model.disabled {
+            return None;
+        }
+        if model.config.owned_by == prefix {
+            Some(model_object_for_model(id, model))
+        } else {
+            None
+        }
+    })
+}
+
+fn model_object_for_model(public_id: &str, model: &LoadedModel) -> Value {
     json!({
-        "id": id,
+        "id": public_id,
         "object": "model",
         "created": model.created,
         "owned_by": model.config.owned_by.clone()
     })
 }
 
-fn model_object(
+fn model_object_for_alias(
+    public_id: &str,
     alias: &crate::config::AliasConfig,
     providers: &HashMap<String, LoadedModel>,
 ) -> Value {
-    let (created, owned_by) = alias
+    let owned_by = alias_owned_by(alias, providers);
+    let (created, _) = alias
         .providers
-        .first()
-        .and_then(|id| providers.get(id))
+        .iter()
+        .filter_map(|id| providers.get(id))
+        .find(|model| !model.disabled)
         .map(|model| (model.created, model.config.owned_by.clone()))
-        .unwrap_or_else(|| (Utc::now().timestamp(), "llm-lab".to_string()));
+        .unwrap_or_else(|| (Utc::now().timestamp(), owned_by.clone()));
     json!({
-        "id": alias.name.clone(),
+        "id": public_id,
         "object": "model",
         "created": created,
         "owned_by": owned_by
     })
 }
 
-fn resolve_provider_id(kernel: &KernelState, model_id: &str) -> Result<String, AppError> {
-    if let Some(alias) = kernel.aliases.get(model_id) {
-        return select_provider(alias, &kernel.alias_rr);
+fn resolve_public_model(
+    kernel: &KernelState,
+    public_id: &str,
+) -> Result<LoadedModel, AppError> {
+    let (prefix, name) = split_public_id(public_id)
+        .ok_or_else(|| AppError::bad_request("model must be prefix/name"))?;
+    if let Some(alias) = kernel.aliases.get(name) {
+        if !alias.disabled {
+            let alias_prefix = alias_owned_by(alias, &kernel.models);
+            if alias_prefix == prefix {
+                let provider = select_enabled_provider(alias, &kernel.models, &kernel.alias_rr)?;
+                let model = kernel
+                    .models
+                    .get(&provider)
+                    .ok_or_else(|| AppError::not_found("provider not found"))?
+                    .clone();
+                return Ok(model);
+            }
+        }
     }
-    if kernel.models.contains_key(model_id) {
-        return Ok(model_id.to_string());
+    if let Some(model) = kernel.models.get(name) {
+        if model.disabled {
+            return Err(AppError::not_found("model not found"));
+        }
+        if model.config.owned_by == prefix {
+            return Ok(model.clone());
+        }
     }
     Err(AppError::not_found("model not found"))
 }
@@ -461,30 +519,106 @@ fn select_weighted(rule: &crate::config::ModelRule) -> Result<StaticReply, AppEr
         .ok_or_else(|| AppError::internal("no static reply"))
 }
 
-fn select_provider(
+fn select_enabled_provider(
     alias: &crate::config::AliasConfig,
+    providers: &HashMap<String, LoadedModel>,
     alias_rr: &std::sync::Mutex<HashMap<String, usize>>,
 ) -> Result<String, AppError> {
+    let enabled: Vec<String> = alias
+        .providers
+        .iter()
+        .filter(|id| providers.get(*id).map(|m| !m.disabled).unwrap_or(false))
+        .cloned()
+        .collect();
+    if enabled.is_empty() {
+        return Err(AppError::not_found("no enabled providers"));
+    }
     match alias.strategy {
         AliasStrategy::RoundRobin => {
             let mut map = alias_rr
                 .lock()
                 .map_err(|_| AppError::internal("alias rr lock poisoned"))?;
             let idx = map.entry(alias.name.clone()).or_insert(0);
-            let provider = alias.providers[*idx % alias.providers.len()].clone();
-            *idx = (*idx + 1) % alias.providers.len();
+            let provider = enabled[*idx % enabled.len()].clone();
+            *idx = (*idx + 1) % enabled.len();
             Ok(provider)
         }
         AliasStrategy::Random => {
             let mut rng = rand::rng();
-            alias
-                .providers
+            enabled
                 .choose(&mut rng)
                 .cloned()
                 .ok_or_else(|| AppError::internal("no providers for alias"))
         }
     }
 }
+
+fn build_public_id(prefix: &str, name: &str) -> String {
+    format!("{}/{}", prefix, name)
+}
+
+fn split_public_id(value: &str) -> Option<(&str, &str)> {
+    let (prefix, name) = value.split_once('/')?;
+    if prefix.trim().is_empty() || name.trim().is_empty() {
+        return None;
+    }
+    Some((prefix, name))
+}
+
+fn alias_owned_by(
+    alias: &crate::config::AliasConfig,
+    providers: &HashMap<String, LoadedModel>,
+) -> String {
+    if let Some(value) = alias.owned_by.as_ref() {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    if let Some(model) = alias
+        .providers
+        .iter()
+        .filter_map(|id| providers.get(id))
+        .find(|model| !model.disabled)
+    {
+        return model.config.owned_by.clone();
+    }
+    alias
+        .providers
+        .iter()
+        .filter_map(|id| providers.get(id))
+        .next()
+        .map(|model| model.config.owned_by.clone())
+        .unwrap_or_else(|| "llm-lab".to_string())
+}
+
+fn alias_has_enabled_provider(
+    alias: &crate::config::AliasConfig,
+    providers: &HashMap<String, LoadedModel>,
+) -> bool {
+    alias
+        .providers
+        .iter()
+        .any(|id| providers.get(id).map(|m| !m.disabled).unwrap_or(false))
+}
+
+fn public_id_for_default(kernel: &KernelState, name: &str) -> Result<String, AppError> {
+    if let Some(alias) = kernel.aliases.get(name) {
+        if alias.disabled {
+            return Err(AppError::not_found("model not found"));
+        }
+        let owned_by = alias_owned_by(alias, &kernel.models);
+        return Ok(build_public_id(&owned_by, name));
+    }
+    if let Some(model) = kernel.models.get(name) {
+        if model.disabled {
+            return Err(AppError::not_found("model not found"));
+        }
+        return Ok(build_public_id(&model.config.owned_by, name));
+    }
+    Err(AppError::not_found("model not found"))
+}
+
 
 struct InterpolationContext<'a> {
     last_user: Option<&'a str>,

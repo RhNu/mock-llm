@@ -30,20 +30,38 @@ export default function ModelsPanel({
   const [models, setModels] = useState<any[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
   const [form, setForm] = useState<ModelForm>(DEFAULT_MODEL_FORM());
+  const [disabledModels, setDisabledModels] = useState<string[]>([]);
+  const [modelDisabled, setModelDisabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const disabledSet = new Set(disabledModels);
+  const busy = loading || saving || deleting;
 
   async function loadBundle() {
+    if (busy) {
+      return;
+    }
     setLoading(true);
     try {
       const data = await api.getModelsBundle();
       setModels(Array.isArray(data?.models) ? data.models : []);
+      setDisabledModels(
+        Array.isArray(data?.catalog?.disabled_models)
+          ? data.catalog.disabled_models
+          : [],
+      );
       if (selectedId) {
         const match = (data?.models ?? []).find(
           (model: any) => model.id === selectedId,
         );
         if (match) {
           setForm(modelToForm(match));
+          setModelDisabled(
+            Array.isArray(data?.catalog?.disabled_models)
+              ? data.catalog.disabled_models.includes(match.id)
+              : false,
+          );
         }
       }
     } catch (err) {
@@ -60,11 +78,13 @@ export default function ModelsPanel({
       return;
     }
     setForm(modelToForm(model));
+    setModelDisabled(disabledSet.has(id));
   }
 
   function newModel() {
     setSelectedId("");
     setForm(DEFAULT_MODEL_FORM());
+    setModelDisabled(false);
   }
 
   function validateForm(nextForm: ModelForm) {
@@ -116,6 +136,9 @@ export default function ModelsPanel({
     if (!validateForm(form)) {
       return;
     }
+    if (busy) {
+      return;
+    }
     setSaving(true);
     try {
       const modelPayload = formToModel(form);
@@ -131,13 +154,54 @@ export default function ModelsPanel({
         }
         nextModels.push(modelPayload);
       }
+      const nextCatalog = { ...(latest?.catalog ?? { schema: 2 }) } as any;
+      const disabled = Array.isArray(nextCatalog?.disabled_models)
+        ? nextCatalog.disabled_models.map((id: string) => String(id))
+        : [];
+      const nextDisabled = new Set(disabled);
+      if (selectedId && selectedId !== modelId) {
+        nextDisabled.delete(selectedId);
+      }
+      if (modelDisabled) {
+        nextDisabled.add(modelId);
+      } else {
+        nextDisabled.delete(modelId);
+      }
+      nextCatalog.disabled_models = Array.from(nextDisabled);
+      const nextModelIds = new Set(nextModels.map((item: any) => item.id));
+      const defaultModel = nextCatalog?.default_model ?? null;
+      if (defaultModel && typeof defaultModel === "string") {
+        if (nextDisabled.has(defaultModel)) {
+          nextCatalog.default_model = null;
+        } else if (Array.isArray(nextCatalog.aliases)) {
+          const alias = nextCatalog.aliases.find(
+            (item: any) => item?.name === defaultModel,
+          );
+          if (alias) {
+            if (alias?.disabled) {
+              nextCatalog.default_model = null;
+            } else {
+              const providers = Array.isArray(alias?.providers)
+                ? alias.providers
+                : [];
+              const hasEnabledProvider = providers.some(
+                (id: string) => nextModelIds.has(id) && !nextDisabled.has(id),
+              );
+              if (!hasEnabledProvider) {
+                nextCatalog.default_model = null;
+              }
+            }
+          }
+        }
+      }
 
       const nextBundle = {
-        catalog: latest?.catalog ?? { schema: 2 },
+        catalog: nextCatalog,
         models: nextModels,
       };
       const saved = await api.putModelsBundle(nextBundle);
       setModels(saved.models ?? []);
+      setDisabledModels(saved.catalog?.disabled_models ?? []);
       setSelectedId(modelId);
       const next = (saved.models ?? []).find(
         (item: any) => item.id === modelId,
@@ -145,6 +209,11 @@ export default function ModelsPanel({
       if (next) {
         setForm(modelToForm(next));
       }
+      setModelDisabled(
+        Array.isArray(saved.catalog?.disabled_models)
+          ? saved.catalog.disabled_models.includes(modelId)
+          : false,
+      );
       onNotify("success", t("notice.model.saved"));
     } catch (err) {
       onError(err, t("error.save"));
@@ -162,20 +231,34 @@ export default function ModelsPanel({
     if (!window.confirm(t("confirm.delete.model", { id }))) {
       return;
     }
+    if (busy) {
+      return;
+    }
+    setDeleting(true);
     try {
       const latest = await api.getModelsBundle();
       const nextModels = Array.isArray(latest?.models)
         ? latest.models.filter((item: any) => item.id !== id)
         : [];
+      const nextCatalog = { ...(latest?.catalog ?? { schema: 2 }) } as any;
+      const disabled = Array.isArray(nextCatalog?.disabled_models)
+        ? nextCatalog.disabled_models.map((item: string) => String(item))
+        : [];
+      const nextDisabled = new Set(disabled);
+      nextDisabled.delete(id);
+      nextCatalog.disabled_models = Array.from(nextDisabled);
       const saved = await api.putModelsBundle({
-        catalog: latest?.catalog ?? { schema: 2 },
+        catalog: nextCatalog,
         models: nextModels,
       });
       setModels(saved.models ?? []);
+      setDisabledModels(saved.catalog?.disabled_models ?? []);
       newModel();
       onNotify("success", t("notice.model.deleted"));
     } catch (err) {
       onError(err, t("error.delete"));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -294,26 +377,28 @@ export default function ModelsPanel({
           <button
             className="rounded-full border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
             onClick={loadBundle}
-            disabled={loading}
+            disabled={busy}
           >
             {t("models.refresh")}
           </button>
           <button
             className="rounded-full border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
             onClick={newModel}
+            disabled={busy}
           >
             {t("models.new")}
           </button>
           <button
             className="rounded-full bg-sky-400/90 px-3 py-1.5 text-xs font-semibold text-slate-900 transition hover:bg-sky-300"
             onClick={saveBundle}
-            disabled={saving}
+            disabled={busy}
           >
             {saving ? "..." : t("models.save")}
           </button>
           <button
             className="rounded-full border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-200"
             onClick={remove}
+            disabled={busy}
           >
             {t("models.delete")}
           </button>
@@ -334,12 +419,15 @@ export default function ModelsPanel({
                   selectedId === model.id
                     ? "border-sky-400/50 bg-sky-500/10 text-sky-200"
                     : "border-transparent bg-slate-900/60 text-slate-100 hover:border-slate-600/60",
+                  disabledSet.has(model.id) ? "opacity-60" : "",
                 ].join(" ")}
                 onClick={() => select(model.id)}
               >
                 <span>{model.id}</span>
                 <span className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                  {model.kind}
+                  {disabledSet.has(model.id)
+                    ? t("models.disabled")
+                    : model.kind}
                 </span>
               </button>
             ))}
@@ -360,6 +448,15 @@ export default function ModelsPanel({
                   }
                   placeholder="cognition-example"
                   className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-1.5 text-sm text-slate-100"
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                <span>{t("models.disabled")}</span>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-sky-400"
+                  checked={modelDisabled}
+                  onChange={(e) => setModelDisabled(e.target.checked)}
                 />
               </label>
               <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">

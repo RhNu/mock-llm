@@ -23,8 +23,10 @@ type ConditionBucket = "any" | "all" | "none";
 type AliasForm = {
   uid: string;
   name: string;
+  owned_by: string;
   strategy: AliasStrategy;
   providers: string;
+  disabled: boolean;
 };
 
 type TemplateForm = {
@@ -102,8 +104,10 @@ function createAliasForm(): AliasForm {
   return {
     uid: makeId(),
     name: "",
+    owned_by: "",
     strategy: "round_robin",
     providers: "",
+    disabled: false,
   };
 }
 
@@ -152,11 +156,18 @@ export default function CatalogPanel({
   );
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [yamlSaving, setYamlSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [showYaml, setShowYaml] = useState(false);
   const [rawYaml, setRawYaml] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const busy = loading || saving || yamlSaving || exporting || importing;
 
   async function loadBundle() {
+    if (busy) {
+      return;
+    }
     setLoading(true);
     try {
       const data = await api.getModelsBundle();
@@ -169,6 +180,9 @@ export default function CatalogPanel({
   }
 
   async function loadYaml() {
+    if (busy) {
+      return;
+    }
     try {
       const yaml = await api.getModelsYaml();
       setRawYaml(yaml);
@@ -377,8 +391,10 @@ export default function CatalogPanel({
     const aliases = catalogForm.aliases
       .map((alias) => ({
         name: alias.name.trim(),
+        ...(alias.owned_by.trim() ? { owned_by: alias.owned_by.trim() } : {}),
         strategy: alias.strategy,
         providers: splitLines(alias.providers),
+        ...(alias.disabled ? { disabled: true } : {}),
       }))
       .filter((alias) => alias.name || alias.providers.length);
     if (aliases.length) {
@@ -396,10 +412,49 @@ export default function CatalogPanel({
     if (!validateCatalogForm(catalogForm)) {
       return;
     }
+    if (busy) {
+      return;
+    }
     setSaving(true);
     try {
       const latest = await api.getModelsBundle();
       const nextCatalog = applyCatalogForm(latest?.catalog ?? {});
+      const disabledModels = new Set(
+        Array.isArray(nextCatalog?.disabled_models)
+          ? nextCatalog.disabled_models.map((id: string) => String(id))
+          : [],
+      );
+      const modelIds = new Set(
+        Array.isArray(latest?.models)
+          ? latest.models.map((item: any) => item.id)
+          : [],
+      );
+      const defaultModel = nextCatalog?.default_model ?? null;
+      if (defaultModel && typeof defaultModel === "string") {
+        if (disabledModels.has(defaultModel)) {
+          nextCatalog.default_model = null;
+        } else if (Array.isArray(nextCatalog.aliases)) {
+          const alias = nextCatalog.aliases.find(
+            (item: any) => item?.name === defaultModel,
+          );
+          if (alias) {
+            if (alias?.disabled) {
+              nextCatalog.default_model = null;
+            } else {
+              const providers = Array.isArray(alias?.providers)
+                ? alias.providers
+                : [];
+              const hasEnabledProvider = providers.some(
+                (id: string) =>
+                  modelIds.has(id) && !disabledModels.has(String(id)),
+              );
+              if (!hasEnabledProvider) {
+                nextCatalog.default_model = null;
+              }
+            }
+          }
+        }
+      }
       const nextBundle = {
         catalog: nextCatalog,
         models: Array.isArray(latest?.models) ? latest.models : [],
@@ -415,16 +470,26 @@ export default function CatalogPanel({
   }
 
   async function saveYaml() {
+    if (busy) {
+      return;
+    }
+    setYamlSaving(true);
     try {
       await api.putModelsYaml(rawYaml);
       await loadBundle();
       onNotify("success", t("notice.catalog.saved"));
     } catch (err) {
       onError(err, t("error.save"));
+    } finally {
+      setYamlSaving(false);
     }
   }
 
   async function exportYaml() {
+    if (busy) {
+      return;
+    }
+    setExporting(true);
     try {
       const yaml = await api.getModelsYaml();
       const blob = new Blob([yaml], { type: "text/yaml" });
@@ -438,6 +503,8 @@ export default function CatalogPanel({
       URL.revokeObjectURL(url);
     } catch (err) {
       onError(err, t("error.export"));
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -445,6 +512,10 @@ export default function CatalogPanel({
     if (!file) {
       return;
     }
+    if (busy) {
+      return;
+    }
+    setImporting(true);
     try {
       const text = await file.text();
       await api.putModelsYaml(text);
@@ -456,6 +527,7 @@ export default function CatalogPanel({
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
+      setImporting(false);
     }
   }
   function addTemplateRule(templateId: string) {
@@ -612,32 +684,35 @@ export default function CatalogPanel({
           <button
             className="rounded-full border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
             onClick={loadBundle}
-            disabled={loading}
+            disabled={busy}
           >
             {t("models.refresh")}
           </button>
           <button
             className="rounded-full bg-sky-400/90 px-3 py-1.5 text-xs font-semibold text-slate-900 transition hover:bg-sky-300"
             onClick={saveCatalog}
-            disabled={saving}
+            disabled={busy}
           >
             {saving ? "..." : t("models.save")}
           </button>
           <button
             className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-200"
             onClick={exportYaml}
+            disabled={busy}
           >
             {t("models.export")}
           </button>
           <button
             className="rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200"
             onClick={() => fileInputRef.current?.click()}
+            disabled={busy}
           >
             {t("models.import")}
           </button>
           <button
             className="rounded-full border border-slate-600/50 bg-slate-900/70 px-3 py-1.5 text-xs font-semibold text-slate-200"
             onClick={() => setShowYaml((prev) => !prev)}
+            disabled={busy}
           >
             {showYaml ? t("models.mode.form") : t("models.mode.yaml")}
           </button>
@@ -872,6 +947,30 @@ export default function CatalogPanel({
                           {t("models.alias.strategy.random")}
                         </option>
                       </select>
+                    </label>
+                  </div>
+                  <div className="mt-2 grid gap-2 md:grid-cols-[1fr_200px]">
+                    <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                      {t("models.alias.owned_by")}
+                      <input
+                        value={alias.owned_by}
+                        onChange={(e) =>
+                          updateAlias(alias.uid, { owned_by: e.target.value })
+                        }
+                        placeholder="llm-lab"
+                        className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-1.5 text-sm text-slate-100"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-700/50 bg-slate-900/70 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                      <span>{t("models.alias.disabled")}</span>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-sky-400"
+                        checked={alias.disabled}
+                        onChange={(e) =>
+                          updateAlias(alias.uid, { disabled: e.target.checked })
+                        }
+                      />
                     </label>
                   </div>
                   <label className="mt-2 grid gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
@@ -1433,8 +1532,9 @@ export default function CatalogPanel({
               <button
                 className="rounded-full bg-emerald-400/90 px-3 py-1 text-xs font-semibold text-slate-900"
                 onClick={saveYaml}
+                disabled={busy}
               >
-                {t("models.raw.save")}
+                {yamlSaving ? "..." : t("models.raw.save")}
               </button>
             </div>
             <div className="rounded-2xl border border-slate-700/40 bg-[#0b1220]">
@@ -1660,10 +1760,12 @@ function catalogToForm(catalog: any): CatalogForm {
       ? catalog.aliases.map((alias: any) => ({
           uid: makeId(),
           name: alias?.name ?? "",
+          owned_by: alias?.owned_by ?? "",
           strategy: alias?.strategy ?? "round_robin",
           providers: Array.isArray(alias?.providers)
             ? alias.providers.join("\n")
             : "",
+          disabled: Boolean(alias?.disabled),
         }))
       : [],
     templates: Array.isArray(catalog.templates)

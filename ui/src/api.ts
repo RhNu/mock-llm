@@ -8,6 +8,11 @@ export type AdminAuthStatus = {
   enabled: boolean;
 };
 
+export type AccessInfo = {
+  enabled: boolean;
+  api_key: string;
+};
+
 export function createApi(getToken: () => string, onUnauthorized: () => void) {
   function authHeaders() {
     const token = getToken();
@@ -149,5 +154,6 @@ export function createApi(getToken: () => string, onUnauthorized: () => void) {
         method: "POST",
         body: payload,
       }),
+    getAccessInfo: () => requestJson("/v1/access") as Promise<AccessInfo>,
   };
 }
