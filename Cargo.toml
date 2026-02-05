@@ -17,6 +17,7 @@ uuid = { version = "1.20.0", features = ["v4"] }
 chrono = { version = "0.4.43", features = ["clock"] }
 rand = "0.9.2"
 tokio-stream = "0.1.18"
+async-stream = "0.3.6"
 anyhow = "1.0.100"
 rquickjs = { version = "0.11.0", features = ["loader"] }
 rquickjs-serde = "0.4.0"

@@ -1,0 +1,11 @@
+schema: 2
+id: "llm-interactive"
+meta:
+  owned_by: "llm-lab"
+  created: 1738675200
+kind: "interactive"
+interactive:
+  timeout_ms: 15000
+  stream_chunk_chars: 8
+  fake_reasoning: "思考中..."
+  fallback_text: "暂未收到回复，请稍后再试。"

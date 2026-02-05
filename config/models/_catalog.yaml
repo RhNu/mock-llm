@@ -8,10 +8,15 @@ aliases:
 defaults:
   owned_by: "llm-lab"
   static:
-    stream_chunk_chars: 16
+    stream_chunk_chars: 8
   script:
     timeout_ms: 1500
-    stream_chunk_chars: 24
+    stream_chunk_chars: 12
+  interactive:
+    timeout_ms: 15000
+    stream_chunk_chars: 8
+    fake_reasoning: "思考中..."
+    fallback_text: "暂未收到回复，请稍后再试。"
 
 templates:
   - name: "base-static"

@@ -3,6 +3,7 @@ mod config;
 mod error;
 mod handlers;
 mod init;
+mod interactive;
 mod kernel;
 mod scripting;
 mod state;
@@ -26,15 +27,19 @@ use crate::admin::{
     get_models_bundle as admin_get_models_bundle,
     get_script as admin_get_script,
     list_scripts as admin_list_scripts,
+    list_interactive_requests as admin_list_interactive_requests,
     patch_config as admin_patch_config,
     put_config as admin_put_config,
     put_models_bundle as admin_put_models_bundle,
     put_script as admin_put_script,
     reload,
+    reply_interactive_request as admin_reply_interactive_request,
     status,
+    stream_interactive as admin_stream_interactive,
 };
 use crate::handlers::{chat_completions, get_model, list_models};
 use crate::init::ensure_config_layout;
+use crate::interactive::InteractiveHub;
 use crate::kernel::KernelHandle;
 use crate::state::AppState;
 
@@ -55,7 +60,8 @@ async fn main() -> Result<(), anyhow::Error> {
     ensure_config_layout(&cli.config_dir)?;
     let kernel = KernelHandle::new(cli.config_dir.clone())
         .map_err(|e| anyhow::anyhow!("kernel init failed: {e:?}"))?;
-    let state = AppState::new(kernel);
+    let interactive = std::sync::Arc::new(InteractiveHub::new());
+    let state = AppState::new(kernel, interactive);
 
     let addr: SocketAddr = state
         .kernel
@@ -110,6 +116,18 @@ async fn main() -> Result<(), anyhow::Error> {
             axum::routing::get(admin_get_script)
                 .put(admin_put_script)
                 .delete(admin_delete_script),
+        )
+        .route(
+            "/v0/interactive/requests",
+            axum::routing::get(admin_list_interactive_requests),
+        )
+        .route(
+            "/v0/interactive/requests/{id}/reply",
+            axum::routing::post(admin_reply_interactive_request),
+        )
+        .route(
+            "/v0/interactive/stream",
+            axum::routing::get(admin_stream_interactive),
         )
         .route("/v1/chat/completions", axum::routing::post(chat_completions))
         .route("/v1/models", axum::routing::get(list_models))

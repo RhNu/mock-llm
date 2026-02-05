@@ -9,4 +9,4 @@ script:
   file: "example.js"
   init_file: "init.js"
   timeout_ms: 1500
-  stream_chunk_chars: 24
+  stream_chunk_chars: 12

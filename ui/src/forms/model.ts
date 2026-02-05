@@ -1,4 +1,4 @@
-﻿import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { makeId } from "./common";
 
 export type PickStrategy = "round_robin" | "random" | "weighted";
@@ -36,7 +36,7 @@ export type RuleForm = {
 
 export type ModelForm = {
   id: string;
-  kind: "static" | "script";
+  kind: "static" | "script" | "interactive";
   extends: string;
   meta: {
     owned_by: string;
@@ -55,6 +55,12 @@ export type ModelForm = {
     timeout_ms: string;
     stream_chunk_chars: string;
   };
+  interactive: {
+    timeout_ms: string;
+    stream_chunk_chars: string;
+    fake_reasoning: string;
+    fallback_text: string;
+  };
 };
 
 export function createReply(): ReplyForm {
@@ -66,7 +72,9 @@ export function createReply(): ReplyForm {
   };
 }
 
-export function createCondition(type: ConditionType = "contains"): ConditionForm {
+export function createCondition(
+  type: ConditionType = "contains",
+): ConditionForm {
   return {
     uid: makeId(),
     type,
@@ -107,6 +115,12 @@ export const DEFAULT_MODEL_FORM = (): ModelForm => ({
     init_file: "",
     timeout_ms: "1500",
     stream_chunk_chars: "",
+  },
+  interactive: {
+    timeout_ms: "15000",
+    stream_chunk_chars: "",
+    fake_reasoning: "",
+    fallback_text: "",
   },
 });
 
@@ -184,7 +198,12 @@ export function updateCondition(
 
 export function modelToForm(model: any): ModelForm {
   const base = DEFAULT_MODEL_FORM();
-  const kind = model?.kind === "script" ? "script" : "static";
+  const kind =
+    model?.kind === "script"
+      ? "script"
+      : model?.kind === "interactive"
+        ? "interactive"
+        : "static";
   const meta = model?.meta ?? {};
 
   const form: ModelForm = {
@@ -216,9 +235,23 @@ export function modelToForm(model: any): ModelForm {
     };
   }
 
-  const rules = Array.isArray(model?.static?.rules)
-    ? model.static.rules.map((rule: any) => parseRule(rule))
-    : base.static.rules;
+  if (kind === "interactive") {
+    return {
+      ...form,
+      interactive: {
+        timeout_ms: model?.interactive?.timeout_ms
+          ? String(model.interactive.timeout_ms)
+          : "",
+        stream_chunk_chars: model?.interactive?.stream_chunk_chars
+          ? String(model.interactive.stream_chunk_chars)
+          : "",
+        fake_reasoning: model?.interactive?.fake_reasoning ?? "",
+        fallback_text: model?.interactive?.fallback_text ?? "",
+      },
+    };
+  }
+
+  const rules = rulesToForm(model?.static?.rules);
 
   return {
     ...form,
@@ -230,6 +263,13 @@ export function modelToForm(model: any): ModelForm {
       rules: rules.length ? rules : base.static.rules,
     },
   };
+}
+
+export function rulesToForm(list: any): RuleForm[] {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  return list.map((rule: any) => parseRule(rule));
 }
 
 function parseRule(rule: any): RuleForm {
@@ -360,7 +400,39 @@ export function formToModel(form: ModelForm) {
     return base;
   }
 
-  const rules = form.static.rules.map((rule) => {
+  if (form.kind === "interactive") {
+    base.interactive = {
+      ...(form.interactive.timeout_ms.trim()
+        ? { timeout_ms: Number(form.interactive.timeout_ms.trim()) }
+        : {}),
+      ...(form.interactive.stream_chunk_chars.trim()
+        ? { stream_chunk_chars: Number(form.interactive.stream_chunk_chars.trim()) }
+        : {}),
+      ...(form.interactive.fake_reasoning.trim()
+        ? { fake_reasoning: form.interactive.fake_reasoning.trim() }
+        : {}),
+      ...(form.interactive.fallback_text.trim()
+        ? { fallback_text: form.interactive.fallback_text.trim() }
+        : {}),
+    };
+    return base;
+  }
+
+  const rules = rulesToPayload(form.static.rules);
+
+  base.static = {
+    ...(form.static.pick ? { pick: form.static.pick } : {}),
+    ...(form.static.stream_chunk_chars.trim()
+      ? { stream_chunk_chars: Number(form.static.stream_chunk_chars.trim()) }
+      : {}),
+    rules,
+  };
+
+  return base;
+}
+
+export function rulesToPayload(rules: RuleForm[]) {
+  return rules.map((rule) => {
     const out: any = {
       default: rule.default,
       replies: rule.replies.map((reply) => {
@@ -405,16 +477,6 @@ export function formToModel(form: ModelForm) {
 
     return out;
   });
-
-  base.static = {
-    ...(form.static.pick ? { pick: form.static.pick } : {}),
-    ...(form.static.stream_chunk_chars.trim()
-      ? { stream_chunk_chars: Number(form.static.stream_chunk_chars.trim()) }
-      : {}),
-    rules,
-  };
-
-  return base;
 }
 
 function buildConditions(list: ConditionForm[]) {

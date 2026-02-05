@@ -3,12 +3,14 @@ import toast, { Toaster } from "react-hot-toast";
 import { ApiError, createApi } from "./api";
 import { createTranslator, getInitialLang, saveLang, Lang } from "./i18n";
 import TokenModal from "./components/TokenModal";
+import CatalogPanel from "./panels/CatalogPanel";
 import ConfigPanel from "./panels/ConfigPanel";
 import ModelsPanel from "./panels/ModelsPanel";
+import InteractivePanel from "./panels/InteractivePanel";
 import ScriptsPanel from "./panels/ScriptsPanel";
 import StatusPanel from "./panels/StatusPanel";
 
-type View = "status" | "config" | "models" | "scripts";
+type View = "status" | "config" | "catalog" | "models" | "scripts" | "interactive";
 
 export default function App() {
   const [view, setView] = useState<View>("status");
@@ -80,6 +82,11 @@ export default function App() {
       hint: t("nav.config.hint"),
     },
     {
+      id: "catalog" as const,
+      label: t("nav.catalog"),
+      hint: t("nav.catalog.hint"),
+    },
+    {
       id: "models" as const,
       label: t("nav.models"),
       hint: t("nav.models.hint"),
@@ -88,6 +95,11 @@ export default function App() {
       id: "scripts" as const,
       label: t("nav.scripts"),
       hint: t("nav.scripts.hint"),
+    },
+    {
+      id: "interactive" as const,
+      label: t("nav.interactive"),
+      hint: t("nav.interactive.hint"),
     },
   ];
 
@@ -179,6 +191,14 @@ export default function App() {
               onNotify={notify}
             />
           )}
+          {view === "catalog" && (
+            <CatalogPanel
+              api={api}
+              t={t}
+              onError={handleApiError}
+              onNotify={notify}
+            />
+          )}
           {view === "models" && (
             <ModelsPanel
               api={api}
@@ -189,6 +209,14 @@ export default function App() {
           )}
           {view === "scripts" && (
             <ScriptsPanel
+              api={api}
+              t={t}
+              onError={handleApiError}
+              onNotify={notify}
+            />
+          )}
+          {view === "interactive" && (
+            <InteractivePanel
               api={api}
               t={t}
               onError={handleApiError}

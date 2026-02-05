@@ -140,6 +140,7 @@ impl KernelState {
                         match_cache.insert(model.config.id.clone(), cache);
                     }
                 }
+                ModelKind::Interactive => {}
             }
 
             model_map.insert(model.config.id.clone(), model);

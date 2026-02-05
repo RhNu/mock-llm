@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { createApi } from "../api";
 import {
   type ConfigForm,
@@ -55,21 +55,21 @@ export default function ConfigPanel({
 
   return (
     <div className="animate-[rise_0.5s_ease-out] space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold">{t("config.title")}</h2>
           <p className="text-sm text-slate-400">{t("config.desc")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            className="rounded-full border border-slate-700/60 bg-slate-900/50 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
+            className="rounded-full border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
             onClick={load}
             disabled={loading}
           >
             {t("config.refresh")}
           </button>
           <button
-            className="rounded-full bg-sky-400/90 px-4 py-2 text-xs font-semibold text-slate-900 transition hover:bg-sky-300"
+            className="rounded-full bg-sky-400/90 px-3 py-1.5 text-xs font-semibold text-slate-900 transition hover:bg-sky-300"
             onClick={save}
             disabled={saving}
           >
@@ -79,11 +79,11 @@ export default function ConfigPanel({
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-700/40 bg-slate-900/40 p-4">
+        <div className="rounded-2xl border border-slate-700/40 bg-slate-900/40 p-3">
           <h3 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
             Response
           </h3>
-          <div className="mt-4 grid gap-4">
+          <div className="mt-3 grid gap-3">
             <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
               {t("config.reasoning")}
               <select
@@ -97,15 +97,31 @@ export default function ConfigPanel({
                     },
                   }))
                 }
-                className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-2 text-sm text-slate-100"
+                className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-1.5 text-sm text-slate-100"
               >
                 <option value="none">{t("config.reasoning.none")}</option>
                 <option value="prefix">{t("config.reasoning.prefix")}</option>
                 <option value="field">{t("config.reasoning.field")}</option>
-                <option value="both">{t("config.reasoning.both")}</option>
               </select>
             </label>
-            <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-3 text-sm">
+            <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+              {t("config.stream_first_delay")}
+              <input
+                value={form.response.stream_first_delay_ms}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    response: {
+                      ...prev.response,
+                      stream_first_delay_ms: e.target.value,
+                    },
+                  }))
+                }
+                placeholder="200"
+                className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-1.5 text-sm text-slate-100"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-2.5 text-sm">
               <span className="text-sm text-slate-200">
                 {t("config.include_usage")}
               </span>
@@ -124,7 +140,7 @@ export default function ConfigPanel({
                 }
               />
             </label>
-            <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-3 text-sm">
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-700/50 bg-slate-900/60 px-3 py-2.5 text-sm">
               <span className="text-sm text-slate-200">
                 {t("config.schema_strict")}
               </span>

@@ -46,6 +46,8 @@ pub struct AdminAuthConfig {
 pub struct ResponseConfig {
     #[serde(default)]
     pub reasoning_mode: ReasoningMode,
+    #[serde(default = "default_zero")]
+    pub stream_first_delay_ms: u64,
     #[serde(default = "default_true")]
     pub include_usage: bool,
     #[serde(default = "default_true")]
@@ -58,13 +60,13 @@ pub enum ReasoningMode {
     None,
     #[serde(alias = "append")]
     Prefix,
+    #[serde(alias = "both")]
     Field,
-    Both,
 }
 
 impl Default for ReasoningMode {
     fn default() -> Self {
-        ReasoningMode::Both
+        ReasoningMode::Field
     }
 }
 
@@ -89,6 +91,8 @@ pub struct ModelDefaults {
     pub r#static: StaticDefaults,
     #[serde(default)]
     pub script: ScriptDefaults,
+    #[serde(default)]
+    pub interactive: InteractiveDefaults,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -105,6 +109,18 @@ pub struct ScriptDefaults {
     pub stream_chunk_chars: Option<usize>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct InteractiveDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_chunk_chars: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fake_reasoning: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_text: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModelTemplate {
     pub name: String,
@@ -116,6 +132,8 @@ pub struct ModelTemplate {
     pub r#static: Option<StaticConfigPartial>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub script: Option<ScriptConfigPartial>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive: Option<InteractiveConfigPartial>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -144,6 +162,8 @@ pub struct ModelFile {
     pub r#static: Option<StaticConfigPartial>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub script: Option<ScriptConfigPartial>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive: Option<InteractiveConfigPartial>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -158,6 +178,8 @@ pub struct ModelConfig {
     pub r#static: Option<StaticConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script: Option<ScriptConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interactive: Option<InteractiveConfig>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -165,6 +187,7 @@ pub struct ModelConfig {
 pub enum ModelKind {
     Static,
     Script,
+    Interactive,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -198,6 +221,18 @@ pub struct ScriptConfigPartial {
     pub stream_chunk_chars: Option<usize>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct InteractiveConfigPartial {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_chunk_chars: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fake_reasoning: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_text: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ScriptConfig {
     pub file: String,
@@ -206,6 +241,16 @@ pub struct ScriptConfig {
     pub timeout_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_chunk_chars: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InteractiveConfig {
+    pub timeout_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_chunk_chars: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fake_reasoning: Option<String>,
+    pub fallback_text: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -405,7 +450,7 @@ pub fn load_app_config(config_dir: &Path) -> anyhow::Result<(GlobalConfig, Model
 
         let base_dir = match resolved.kind {
             ModelKind::Script => scripts_dir.clone(),
-            ModelKind::Static => models_dir.clone(),
+            ModelKind::Static | ModelKind::Interactive => models_dir.clone(),
         };
 
         models.push(LoadedModel {
@@ -462,7 +507,7 @@ pub fn validate_bundle(
             created: resolved.created,
             base_dir: match resolved.kind {
                 ModelKind::Script => scripts_dir.to_path_buf(),
-                ModelKind::Static => models_dir.to_path_buf(),
+                ModelKind::Static | ModelKind::Interactive => models_dir.to_path_buf(),
             },
             config: resolved.clone(),
         });
@@ -504,6 +549,23 @@ pub fn resolve_model_file(
     if let Some(value) = catalog.defaults.script.stream_chunk_chars {
         script_partial.stream_chunk_chars = Some(value);
     }
+    let mut interactive_partial = InteractiveConfigPartial::default();
+    if let Some(value) = catalog.defaults.interactive.timeout_ms {
+        interactive_partial.timeout_ms = Some(value);
+    }
+    if let Some(value) = catalog.defaults.interactive.stream_chunk_chars {
+        interactive_partial.stream_chunk_chars = Some(value);
+    }
+    if let Some(value) = catalog.defaults.interactive.fake_reasoning.as_ref() {
+        if !value.trim().is_empty() {
+            interactive_partial.fake_reasoning = Some(value.clone());
+        }
+    }
+    if let Some(value) = catalog.defaults.interactive.fallback_text.as_ref() {
+        if !value.trim().is_empty() {
+            interactive_partial.fallback_text = Some(value.clone());
+        }
+    }
 
     for name in &model.extends {
         let template = catalog
@@ -543,6 +605,16 @@ pub fn resolve_model_file(
             }
             merge_script(&mut script_partial, script_cfg);
         }
+        if let Some(interactive_cfg) = &template.interactive {
+            if model.kind != ModelKind::Interactive {
+                anyhow::bail!(
+                    "template {} provides interactive config for non-interactive model in {}",
+                    template.name,
+                    path.display()
+                );
+            }
+            merge_interactive(&mut interactive_partial, interactive_cfg);
+        }
     }
 
     merge_meta(&mut meta, &model.meta);
@@ -551,6 +623,9 @@ pub fn resolve_model_file(
     }
     if let Some(script_cfg) = &model.script {
         merge_script(&mut script_partial, script_cfg);
+    }
+    if let Some(interactive_cfg) = &model.interactive {
+        merge_interactive(&mut interactive_partial, interactive_cfg);
     }
 
     let owned_by = meta
@@ -577,6 +652,12 @@ pub fn resolve_model_file(
             if model.script.is_some() {
                 anyhow::bail!("static model cannot include script config in {}", path.display());
             }
+            if model.interactive.is_some() {
+                anyhow::bail!(
+                    "static model cannot include interactive config in {}",
+                    path.display()
+                );
+            }
             let rules = static_partial
                 .rules
                 .ok_or_else(|| anyhow::anyhow!("static model rules missing in {}", path.display()))?;
@@ -594,11 +675,18 @@ pub fn resolve_model_file(
                 meta: meta_out,
                 r#static: Some(cfg),
                 script: None,
+                interactive: None,
             })
         }
         ModelKind::Script => {
             if model.r#static.is_some() {
                 anyhow::bail!("script model cannot include static config in {}", path.display());
+            }
+            if model.interactive.is_some() {
+                anyhow::bail!(
+                    "script model cannot include interactive config in {}",
+                    path.display()
+                );
             }
             let file = script_partial
                 .file
@@ -650,6 +738,53 @@ pub fn resolve_model_file(
                     timeout_ms,
                     stream_chunk_chars: script_partial.stream_chunk_chars,
                 }),
+                interactive: None,
+            })
+        }
+        ModelKind::Interactive => {
+            if model.r#static.is_some() {
+                anyhow::bail!(
+                    "interactive model cannot include static config in {}",
+                    path.display()
+                );
+            }
+            if model.script.is_some() {
+                anyhow::bail!(
+                    "interactive model cannot include script config in {}",
+                    path.display()
+                );
+            }
+            let timeout_ms = interactive_partial
+                .timeout_ms
+                .unwrap_or_else(default_interactive_timeout_ms);
+            let fallback_text = interactive_partial
+                .fallback_text
+                .as_ref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("interactive.fallback_text missing in {}", path.display())
+                })?;
+            let fake_reasoning = interactive_partial
+                .fake_reasoning
+                .as_ref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+
+            Ok(ModelConfig {
+                id: id.to_string(),
+                owned_by,
+                created,
+                kind: ModelKind::Interactive,
+                meta: meta_out,
+                r#static: None,
+                script: None,
+                interactive: Some(InteractiveConfig {
+                    timeout_ms,
+                    stream_chunk_chars: interactive_partial.stream_chunk_chars,
+                    fake_reasoning,
+                    fallback_text,
+                }),
             })
         }
     }
@@ -696,6 +831,24 @@ fn merge_script(base: &mut ScriptConfigPartial, overlay: &ScriptConfigPartial) {
     }
     if overlay.stream_chunk_chars.is_some() {
         base.stream_chunk_chars = overlay.stream_chunk_chars;
+    }
+}
+
+fn merge_interactive(
+    base: &mut InteractiveConfigPartial,
+    overlay: &InteractiveConfigPartial,
+) {
+    if overlay.timeout_ms.is_some() {
+        base.timeout_ms = overlay.timeout_ms;
+    }
+    if overlay.stream_chunk_chars.is_some() {
+        base.stream_chunk_chars = overlay.stream_chunk_chars;
+    }
+    if overlay.fake_reasoning.is_some() {
+        base.fake_reasoning = overlay.fake_reasoning.clone();
+    }
+    if overlay.fallback_text.is_some() {
+        base.fallback_text = overlay.fallback_text.clone();
     }
 }
 
@@ -845,6 +998,14 @@ fn default_script_timeout_ms() -> u64 {
     1500
 }
 
+fn default_interactive_timeout_ms() -> u64 {
+    15000
+}
+
+fn default_zero() -> u64 {
+    0
+}
+
 fn default_true() -> bool {
     true
 }
@@ -878,6 +1039,7 @@ mod tests {
                     stream_chunk_chars: Some(8),
                 },
                 script: ScriptDefaults::default(),
+                interactive: InteractiveDefaults::default(),
             },
             templates: vec![],
         };
@@ -903,6 +1065,7 @@ mod tests {
                 }]),
             }),
             script: None,
+            interactive: None,
         };
 
         let dir = temp_dir();
@@ -954,6 +1117,7 @@ mod tests {
                 }]),
             }),
             script: None,
+            interactive: None,
         };
 
         let dir = temp_dir();
@@ -976,6 +1140,7 @@ mod tests {
                 owned_by: Some("default-lab".to_string()),
                 r#static: StaticDefaults::default(),
                 script: ScriptDefaults::default(),
+                interactive: InteractiveDefaults::default(),
             },
             templates: vec![ModelTemplate {
                 name: "base".to_string(),
@@ -987,6 +1152,7 @@ mod tests {
                     rules: None,
                 }),
                 script: None,
+                interactive: None,
             }],
         };
 
@@ -1011,6 +1177,7 @@ mod tests {
                 }]),
             }),
             script: None,
+            interactive: None,
         };
 
         let dir = temp_dir();
@@ -1023,5 +1190,51 @@ mod tests {
         let static_cfg = resolved.r#static.expect("static cfg");
         assert_eq!(static_cfg.pick, Some(PickStrategy::Random));
         assert_eq!(static_cfg.stream_chunk_chars, Some(12));
+    }
+
+    #[test]
+    fn reasoning_mode_both_alias_maps_to_field() {
+        let yaml = r#"
+reasoning_mode: both
+"#;
+        let cfg: ResponseConfig =
+            serde_yaml_ng::from_str(yaml).expect("parse response config");
+        assert!(matches!(cfg.reasoning_mode, ReasoningMode::Field));
+    }
+
+    #[test]
+    fn interactive_fallback_text_required() {
+        let catalog = ModelCatalog {
+            schema: 2,
+            default_model: None,
+            aliases: vec![],
+            defaults: ModelDefaults::default(),
+            templates: vec![],
+        };
+
+        let model = ModelFile {
+            schema: 2,
+            id: Some("llm-test".to_string()),
+            extends: vec![],
+            meta: ModelMeta::default(),
+            kind: ModelKind::Interactive,
+            r#static: None,
+            script: None,
+            interactive: Some(InteractiveConfigPartial {
+                timeout_ms: None,
+                stream_chunk_chars: None,
+                fake_reasoning: Some("thinking".to_string()),
+                fallback_text: None,
+            }),
+        };
+
+        let dir = temp_dir();
+        let scripts_dir = dir.join("scripts");
+        fs::create_dir_all(&scripts_dir).unwrap();
+        let path = dir.join("llm-test.yaml");
+
+        let err = resolve_model_file(model, "llm-test", &catalog, &scripts_dir, &path)
+            .unwrap_err();
+        assert!(err.to_string().contains("interactive.fallback_text"));
     }
 }

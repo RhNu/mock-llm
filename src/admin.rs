@@ -1,15 +1,17 @@
 ﻿use std::collections::HashSet;
+use std::convert::Infallible;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use axum::extract::State;
+use axum::extract::{Path as AxumPath, State};
 use axum::http::{HeaderMap, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Response, sse::{Event, Sse}};
 use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tokio::sync::broadcast;
 
 use crate::config::{
     AdminAuthConfig,
@@ -21,6 +23,7 @@ use crate::config::{
     validate_bundle,
 };
 use crate::error::AppError;
+use crate::interactive::InteractiveReply;
 use crate::kernel::KernelState;
 use crate::state::AppState;
 
@@ -192,7 +195,7 @@ pub async fn list_scripts(
 pub async fn get_script(
     State(state): State<AppState>,
     headers: HeaderMap,
-    axum::extract::Path(name): axum::extract::Path<String>,
+    AxumPath(name): AxumPath<String>,
 ) -> Result<Response, AppError> {
     let kernel = state.kernel.current();
     check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
@@ -206,7 +209,7 @@ pub async fn get_script(
 pub async fn put_script(
     State(state): State<AppState>,
     headers: HeaderMap,
-    axum::extract::Path(name): axum::extract::Path<String>,
+    AxumPath(name): AxumPath<String>,
     Json(payload): Json<ScriptUpdate>,
 ) -> Result<Response, AppError> {
     let kernel = state.kernel.current();
@@ -222,7 +225,7 @@ pub async fn put_script(
 pub async fn delete_script(
     State(state): State<AppState>,
     headers: HeaderMap,
-    axum::extract::Path(name): axum::extract::Path<String>,
+    AxumPath(name): AxumPath<String>,
 ) -> Result<Response, AppError> {
     let kernel = state.kernel.current();
     check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
@@ -233,6 +236,53 @@ pub async fn delete_script(
             .map_err(|e| AppError::internal(format!("delete script failed: {e}")))?;
     }
     Ok(Json(json!({ "ok": true })).into_response())
+}
+
+pub async fn list_interactive_requests(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let kernel = state.kernel.current();
+    check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
+    let requests = state.interactive.list();
+    Ok(Json(json!({ "requests": requests })).into_response())
+}
+
+pub async fn reply_interactive_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+    Json(payload): Json<InteractiveReply>,
+) -> Result<Response, AppError> {
+    let kernel = state.kernel.current();
+    check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
+    if state.interactive.reply(&id, payload) {
+        Ok(Json(json!({ "ok": true })).into_response())
+    } else {
+        Err(AppError::not_found("interactive request not found"))
+    }
+}
+
+pub async fn stream_interactive(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let kernel = state.kernel.current();
+    check_admin_auth(&kernel.config.server.admin_auth, &headers)?;
+    let mut rx = state.interactive.subscribe();
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let payload = serde_json::to_string(&event).unwrap_or_default();
+                    yield Ok::<_, Infallible>(Event::default().data(payload));
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            }
+        }
+    };
+    Ok(Sse::new(stream).into_response())
 }
 
 fn read_models_bundle(kernel: &KernelState) -> Result<ModelBundle, AppError> {

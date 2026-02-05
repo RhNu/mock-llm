@@ -92,33 +92,33 @@ export default function ScriptsPanel({
 
   return (
     <div className="animate-[rise_0.5s_ease-out] space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold">{t("scripts.title")}</h2>
           <p className="text-sm text-slate-400">{t("scripts.desc")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            className="rounded-full border border-slate-700/60 bg-slate-900/50 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
+            className="rounded-full border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
             onClick={loadList}
             disabled={loading}
           >
             {t("scripts.refresh")}
           </button>
           <button
-            className="rounded-full border border-slate-700/60 bg-slate-900/50 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
+            className="rounded-full border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
             onClick={newScript}
           >
             {t("scripts.new")}
           </button>
           <button
-            className="rounded-full bg-sky-400/90 px-4 py-2 text-xs font-semibold text-slate-900 transition hover:bg-sky-300"
+            className="rounded-full bg-sky-400/90 px-3 py-1.5 text-xs font-semibold text-slate-900 transition hover:bg-sky-300"
             onClick={save}
           >
             {t("scripts.save")}
           </button>
           <button
-            className="rounded-full border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-200"
+            className="rounded-full border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-200"
             onClick={remove}
           >
             {t("scripts.delete")}
@@ -127,7 +127,7 @@ export default function ScriptsPanel({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[280px_1fr]">
-        <div className="rounded-2xl border border-slate-700/40 bg-slate-900/40 p-4">
+        <div className="rounded-2xl border border-slate-700/40 bg-slate-900/40 p-3">
           <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
             {t("scripts.list")}
           </div>
@@ -135,7 +135,7 @@ export default function ScriptsPanel({
             {scripts.map((item) => (
               <button
                 key={item}
-                className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition ${
+                className={`flex w-full items-center justify-between rounded-xl border px-3 py-1.5 text-left text-sm transition ${
                   name === item
                     ? "border-sky-400/50 bg-sky-500/10 text-sky-200"
                     : "border-transparent bg-slate-900/60 text-slate-100 hover:border-slate-600/60"
@@ -151,14 +151,14 @@ export default function ScriptsPanel({
           </div>
         </div>
 
-        <div className="space-y-4 rounded-2xl border border-slate-700/40 bg-slate-900/40 p-4">
+        <div className="space-y-3 rounded-2xl border border-slate-700/40 bg-slate-900/40 p-3">
           <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
             {t("scripts.name")}
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="example.js"
-              className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-2 text-sm text-slate-100"
+              className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-1.5 text-sm text-slate-100"
             />
           </label>
           <div className="rounded-2xl border border-slate-700/40 bg-[#0b1220]">

@@ -8,6 +8,7 @@ server:
     api_key: "sk-admin-xxx"
 
 response:
-  reasoning_mode: "field" # none | prefix | field | both
+  reasoning_mode: "field" # none | prefix | field
+  stream_first_delay_ms: 200
   include_usage: true
   schema_strict: true

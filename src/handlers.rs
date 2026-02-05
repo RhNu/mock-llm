@@ -13,14 +13,16 @@ use uuid::Uuid;
 
 use crate::config::{AliasStrategy, GlobalConfig, LoadedModel, ModelKind, PickStrategy, StaticReply};
 use crate::error::AppError;
+use crate::interactive::{InteractiveReply, InteractiveRequest};
 use crate::kernel::{KernelState, MatchCache, compiled_matches};
 use crate::scripting::run_script;
 use crate::state::AppState;
-use crate::streaming::build_sse_stream;
+use crate::streaming::{build_interactive_sse_stream, build_sse_stream};
 use crate::types::{ChatRequest, ParsedRequest, Reply, ScriptInput, ScriptMeta, Usage};
 
-const DEFAULT_STATIC_CHUNK: usize = 16;
-const DEFAULT_SCRIPT_CHUNK: usize = 24;
+const DEFAULT_STATIC_CHUNK: usize = 8;
+const DEFAULT_SCRIPT_CHUNK: usize = 12;
+const DEFAULT_INTERACTIVE_CHUNK: usize = 8;
 
 pub async fn chat_completions(
     State(state): State<AppState>,
@@ -65,9 +67,95 @@ pub async fn chat_completions(
         extra: req.extra.clone(),
     };
 
+    let reasoning_mode = kernel.config.response.reasoning_mode.clone();
+    let id = format!("chatcmpl-{}", Uuid::new_v4());
+    let created = Utc::now().timestamp();
+
+    if model.config.kind == ModelKind::Interactive {
+        let cfg = model
+            .config
+            .interactive
+            .as_ref()
+            .ok_or_else(|| AppError::internal("interactive config missing"))?;
+        let request_id = Uuid::new_v4().to_string();
+        let interactive_request = InteractiveRequest {
+            id: request_id.clone(),
+            model: model_id.clone(),
+            messages: messages.clone(),
+            stream,
+            created,
+            timeout_ms: cfg.timeout_ms,
+        };
+        let reply_rx = state.interactive.enqueue(interactive_request);
+
+        if stream {
+            let chunk_size = stream_chunk_size(&model);
+            let sse = build_interactive_sse_stream(
+                id,
+                created,
+                model_id,
+                cfg.fake_reasoning.clone(),
+                reasoning_mode,
+                reply_rx,
+                cfg.timeout_ms,
+                cfg.fallback_text.clone(),
+                chunk_size,
+                kernel.config.response.stream_first_delay_ms,
+                state.interactive.clone(),
+                request_id,
+            );
+            return Ok(sse.into_response());
+        }
+
+        let reply = wait_interactive_reply(
+            reply_rx,
+            cfg.timeout_ms,
+            cfg.fallback_text.clone(),
+            state.interactive.clone(),
+            &request_id,
+        )
+        .await?;
+
+        let (content_out, reasoning_field) = apply_reasoning(
+            reply.content,
+            reply.reasoning.clone(),
+            reasoning_mode.clone(),
+        );
+
+        let usage = reply.usage.or_else(|| {
+            if kernel.config.response.include_usage {
+                Some(estimate_usage(&messages, &content_out))
+            } else {
+                None
+            }
+        });
+
+        let mut body = json!({
+            "id": id,
+            "object": "chat.completion",
+            "created": created,
+            "model": model_id,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": { "role": "assistant", "content": content_out },
+                    "finish_reason": reply.finish_reason
+                }
+            ]
+        });
+
+        if let Some(reasoning) = reasoning_field {
+            body["reasoning_content"] = json!(reasoning);
+        }
+        if let Some(usage) = usage {
+            body["usage"] = json!(usage);
+        }
+
+        return Ok(Json(body).into_response());
+    }
+
     let reply = generate_reply(&kernel, &model, raw.clone(), parsed.clone()).await?;
 
-    let reasoning_mode = kernel.config.response.reasoning_mode.clone();
     let (content_out, reasoning_field) = apply_reasoning(
         reply.content,
         reply.reasoning.clone(),
@@ -82,9 +170,6 @@ pub async fn chat_completions(
         }
     });
 
-    let id = format!("chatcmpl-{}", Uuid::new_v4());
-    let created = Utc::now().timestamp();
-
     if stream {
         let chunk_size = stream_chunk_size(&model);
         let sse = build_sse_stream(
@@ -96,6 +181,7 @@ pub async fn chat_completions(
             reply.finish_reason,
             reasoning_mode,
             chunk_size,
+            kernel.config.response.stream_first_delay_ms,
         );
         return Ok(sse.into_response());
     }
@@ -235,7 +321,7 @@ async fn generate_reply(
                 .r#static
                 .as_ref()
                 .ok_or_else(|| AppError::internal("static config missing"))?;
-            let user_text = last_user_text(&parsed.messages);
+            let user_text = last_input_text(&parsed.messages);
             let cache = kernel.match_cache.get(&model.config.id);
             let reply = select_static_reply(
                 &model.config.id,
@@ -273,6 +359,7 @@ async fn generate_reply(
                 usage: output.usage,
             })
         }
+        ModelKind::Interactive => Err(AppError::internal("interactive reply handled upstream")),
     }
 }
 
@@ -424,9 +511,21 @@ fn interpolate_value(value: &str, ctx: &InterpolationContext<'_>) -> String {
     out
 }
 
-fn last_user_text(messages: &[crate::types::Message]) -> Option<String> {
-    messages.iter().rev().find_map(|msg| {
+fn last_input_text(messages: &[crate::types::Message]) -> Option<String> {
+    if let Some(text) = messages.iter().rev().find_map(|msg| {
         if msg.role == "user" {
+            match &msg.content {
+                Value::String(s) => Some(s.clone()),
+                other => Some(other.to_string()),
+            }
+        } else {
+            None
+        }
+    }) {
+        return Some(text);
+    }
+    messages.iter().rev().find_map(|msg| {
+        if msg.role == "system" {
             match &msg.content {
                 Value::String(s) => Some(s.clone()),
                 other => Some(other.to_string()),
@@ -447,9 +546,6 @@ fn apply_reasoning(
             (format!("<think>{r}</think>\n{content}"), None)
         }
         (Some(r), crate::config::ReasoningMode::Field) => (content, Some(r)),
-        (Some(r), crate::config::ReasoningMode::Both) => {
-            (format!("<think>{r}</think>\n{content}"), Some(r))
-        }
         (_, crate::config::ReasoningMode::None) => (content, None),
         (None, _) => (content, None),
     }
@@ -499,5 +595,99 @@ fn stream_chunk_size(model: &LoadedModel) -> usize {
             .as_ref()
             .and_then(|s| s.stream_chunk_chars)
             .unwrap_or(DEFAULT_SCRIPT_CHUNK),
+        ModelKind::Interactive => model
+            .config
+            .interactive
+            .as_ref()
+            .and_then(|s| s.stream_chunk_chars)
+            .unwrap_or(DEFAULT_INTERACTIVE_CHUNK),
+    }
+}
+
+async fn wait_interactive_reply(
+    reply_rx: tokio::sync::oneshot::Receiver<InteractiveReply>,
+    timeout_ms: u64,
+    fallback_text: String,
+    hub: std::sync::Arc<crate::interactive::InteractiveHub>,
+    request_id: &str,
+) -> Result<Reply, AppError> {
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(timeout_ms),
+        reply_rx,
+    )
+    .await;
+
+    let reply = match result {
+        Ok(Ok(reply)) => reply,
+        _ => {
+            hub.timeout(request_id);
+            InteractiveReply {
+                content: fallback_text,
+                reasoning: None,
+                finish_reason: Some("stop".to_string()),
+            }
+        }
+    };
+
+    Ok(Reply {
+        content: reply.content,
+        reasoning: reply.reasoning,
+        finish_reason: reply.finish_reason.unwrap_or_else(|| "stop".to_string()),
+        usage: None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::last_input_text;
+    use crate::types::Message;
+    use serde_json::json;
+
+    #[test]
+    fn last_input_text_prefers_user() {
+        let messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: json!("sys-1"),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!("user-1"),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: json!("assistant"),
+            },
+            Message {
+                role: "system".to_string(),
+                content: json!("sys-2"),
+            },
+        ];
+        let result = last_input_text(&messages);
+        assert_eq!(result.as_deref(), Some("user-1"));
+    }
+
+    #[test]
+    fn last_input_text_falls_back_to_system() {
+        let messages = vec![
+            Message {
+                role: "assistant".to_string(),
+                content: json!("assistant"),
+            },
+            Message {
+                role: "system".to_string(),
+                content: json!("sys-1"),
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: json!("assistant-2"),
+            },
+            Message {
+                role: "system".to_string(),
+                content: json!("sys-2"),
+            },
+        ];
+        let result = last_input_text(&messages);
+        assert_eq!(result.as_deref(), Some("sys-2"));
     }
 }

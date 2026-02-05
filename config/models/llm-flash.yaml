@@ -6,7 +6,7 @@ meta:
   created: 1738675200
 kind: "static"
 static:
-  stream_chunk_chars: 16
+  stream_chunk_chars: 8
   rules:
     - default: true
       pick: "round_robin"

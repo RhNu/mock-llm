@@ -64,7 +64,7 @@ export interface ModelConfig {
   id: string;
   owned_by: string;
   created: number;
-  kind: "static" | "script";
+  kind: "static" | "script" | "interactive";
   meta?: ModelMeta;
   static?: {
     pick?: PickStrategy;
@@ -76,6 +76,12 @@ export interface ModelConfig {
     init_file?: string;
     timeout_ms: number;
     stream_chunk_chars?: number;
+  };
+  interactive?: {
+    timeout_ms: number;
+    stream_chunk_chars?: number;
+    fake_reasoning?: string;
+    fallback_text: string;
   };
 }
 
