@@ -12,6 +12,8 @@ fn main() -> io::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let target_dir = out_dir.join("ui-dist");
 
+    println!("cargo:rustc-env=UI_DIST_DIR={}", target_dir.display());
+
     if target_dir.exists() {
         fs::remove_dir_all(&target_dir)?;
     }

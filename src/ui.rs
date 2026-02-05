@@ -6,7 +6,7 @@ use axum::routing::get;
 use axum::Router;
 use include_dir::{include_dir, Dir};
 
-const UI_DIR: Dir = include_dir!("$OUT_DIR/ui-dist");
+const UI_DIR: Dir = include_dir!("$UI_DIST_DIR");
 
 pub fn router<S>() -> Router<S>
 where
