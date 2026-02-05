@@ -1,5 +1,5 @@
-schema: 2
-id: "llm-flash"
+﻿schema: 2
+id: "cognition-flash"
 extends: ["base-static"]
 meta:
   owned_by: "llm-lab"
@@ -11,5 +11,5 @@ static:
     - default: true
       pick: "round_robin"
       replies:
-        - content: "Hello."
-        - content: "I am llm-flash, a fast mock model."
+        - content: "你好。"
+        - content: "我是 cognition-flash，一个快速的 mock 模型。"

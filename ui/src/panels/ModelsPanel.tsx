@@ -358,7 +358,7 @@ export default function ModelsPanel({
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, id: e.target.value }))
                   }
-                  placeholder="llm-example"
+                  placeholder="cognition-example"
                   className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-1.5 text-sm text-slate-100"
                 />
               </label>

@@ -1,8 +1,8 @@
-schema: 2
-default_model: "llm-flash"
+﻿schema: 2
+default_model: "cognition-flash"
 aliases:
-  - name: "llm-proxy"
-    providers: ["llm-flash", "llm-pro"]
+  - name: "cognition-proxy"
+    providers: ["cognition-flash", "cognition-pro"]
     strategy: "round_robin"
 
 defaults:

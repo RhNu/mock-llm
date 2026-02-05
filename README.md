@@ -7,9 +7,10 @@ config/
   config.yaml
   models/
     _catalog.yaml
-    llm-flash.yaml
-    llm-pro.yaml
-    llm-ultra.yaml
+    cognition-flash.yaml
+    cognition-pro.yaml
+    cognition-go.yaml
+    cognition-ultra.yaml
   scripts/
     example.js
     init.js
@@ -184,4 +185,4 @@ Static rules:
 
 Admin API:
 - `GET /v0/models` returns the full bundle (JSON or YAML).
-- `PUT /v0/models` replaces the full bundle (JSON or YAML).
+- `PUT /v0/models` replaces the full bundle (JSON or YAML).

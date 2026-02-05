@@ -1,5 +1,5 @@
-schema: 2
-id: "llm-interactive"
+﻿schema: 2
+id: "cognition-go"
 meta:
   owned_by: "llm-lab"
   created: 1738675200

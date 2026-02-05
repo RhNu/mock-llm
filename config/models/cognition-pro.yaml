@@ -1,5 +1,5 @@
-schema: 2
-id: "llm-pro"
+﻿schema: 2
+id: "cognition-pro"
 extends: ["base-static"]
 meta:
   owned_by: "llm-lab"
@@ -12,14 +12,14 @@ static:
           - contains: "secret"
           - regex: "/password|token/i"
       replies:
-        - content: "Sorry, I cannot help with that."
-          reasoning: "Match-based safe reply."
+        - content: "抱歉，我无法提供该类敏感信息。"
+          reasoning: "命中安全规则。"
     - when:
         any:
           - contains: "time"
           - contains: "date"
       replies:
-        - content: "Current time is {{now}}."
+        - content: "当前时间是 {{now}}。"
     - default: true
       replies:
-        - content: "I am llm-pro, a higher capability mock model."
+        - content: "我是 cognition-pro，一个更高能力的 mock 模型。"

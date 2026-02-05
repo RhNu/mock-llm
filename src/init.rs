@@ -5,10 +5,10 @@ use anyhow::Context;
 
 const DEFAULT_CONFIG: &str = include_str!("../config/config.yaml");
 const DEFAULT_MODEL_CATALOG: &str = include_str!("../config/models/_catalog.yaml");
-const DEFAULT_MODEL_FLASH: &str = include_str!("../config/models/llm-flash.yaml");
-const DEFAULT_MODEL_PRO: &str = include_str!("../config/models/llm-pro.yaml");
-const DEFAULT_MODEL_ULTRA: &str = include_str!("../config/models/llm-ultra.yaml");
-const DEFAULT_MODEL_INTERACTIVE: &str = include_str!("../config/models/llm-interactive.yaml");
+const DEFAULT_MODEL_FLASH: &str = include_str!("../config/models/cognition-flash.yaml");
+const DEFAULT_MODEL_PRO: &str = include_str!("../config/models/cognition-pro.yaml");
+const DEFAULT_MODEL_ULTRA: &str = include_str!("../config/models/cognition-ultra.yaml");
+const DEFAULT_MODEL_GO: &str = include_str!("../config/models/cognition-go.yaml");
 const DEFAULT_SCRIPT_EXAMPLE: &str = include_str!("../config/scripts/example.js");
 const DEFAULT_SCRIPT_INIT: &str = include_str!("../config/scripts/init.js");
 const DEFAULT_TYPES: &str = include_str!("../config/scripts/types.d.ts");
@@ -33,10 +33,10 @@ pub fn ensure_config_layout(config_dir: &Path) -> anyhow::Result<()> {
 
     write_if_missing(config_dir.join("config.yaml"), DEFAULT_CONFIG)?;
     write_if_missing(models_dir.join("_catalog.yaml"), DEFAULT_MODEL_CATALOG)?;
-    write_if_missing(models_dir.join("llm-flash.yaml"), DEFAULT_MODEL_FLASH)?;
-    write_if_missing(models_dir.join("llm-pro.yaml"), DEFAULT_MODEL_PRO)?;
-    write_if_missing(models_dir.join("llm-ultra.yaml"), DEFAULT_MODEL_ULTRA)?;
-    write_if_missing(models_dir.join("llm-interactive.yaml"), DEFAULT_MODEL_INTERACTIVE)?;
+    write_if_missing(models_dir.join("cognition-flash.yaml"), DEFAULT_MODEL_FLASH)?;
+    write_if_missing(models_dir.join("cognition-pro.yaml"), DEFAULT_MODEL_PRO)?;
+    write_if_missing(models_dir.join("cognition-ultra.yaml"), DEFAULT_MODEL_ULTRA)?;
+    write_if_missing(models_dir.join("cognition-go.yaml"), DEFAULT_MODEL_GO)?;
     write_if_missing(scripts_dir.join("example.js"), DEFAULT_SCRIPT_EXAMPLE)?;
     write_if_missing(scripts_dir.join("init.js"), DEFAULT_SCRIPT_INIT)?;
     write_if_missing(scripts_dir.join("types.d.ts"), DEFAULT_TYPES)?;

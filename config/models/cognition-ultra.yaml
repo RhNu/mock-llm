@@ -1,5 +1,5 @@
-schema: 2
-id: "llm-ultra"
+﻿schema: 2
+id: "cognition-ultra"
 extends: ["base-script"]
 meta:
   owned_by: "llm-lab"

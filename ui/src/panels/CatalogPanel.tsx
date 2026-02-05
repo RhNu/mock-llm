@@ -668,7 +668,7 @@ export default function CatalogPanel({
                     default_model: e.target.value,
                   }))
                 }
-                placeholder="llm-flash"
+                placeholder="cognition-flash"
                 className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-1.5 text-sm text-slate-100"
               />
             </label>
@@ -850,7 +850,7 @@ export default function CatalogPanel({
                         onChange={(e) =>
                           updateAlias(alias.uid, { name: e.target.value })
                         }
-                        placeholder="llm-proxy"
+                        placeholder="cognition-proxy"
                         className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-1.5 text-sm text-slate-100"
                       />
                     </label>
@@ -881,7 +881,7 @@ export default function CatalogPanel({
                       onChange={(e) =>
                         updateAlias(alias.uid, { providers: e.target.value })
                       }
-                      placeholder="llm-flash\nllm-pro"
+                      placeholder="cognition-flash\ncognition-pro"
                       rows={2}
                       className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-1.5 text-sm text-slate-100"
                     />
