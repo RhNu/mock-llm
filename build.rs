@@ -9,6 +9,7 @@ fn main() -> io::Result<()> {
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let dist_dir = manifest_dir.join("ui").join("dist");
+    let public_dir = manifest_dir.join("ui").join("public");
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let target_dir = out_dir.join("ui-dist");
 
@@ -24,11 +25,13 @@ fn main() -> io::Result<()> {
         emit_rerun_if_changed(&dist_dir)?;
     } else {
         let placeholder = r#"<!doctype html>
-<html lang=\"en\">
+<html lang=\"zh-CN\">
   <head>
     <meta charset=\"utf-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-    <title>Mock LLM Admin</title>
+    <link rel=\"icon\" href=\"/favicon.ico\" sizes=\"any\" />
+    <link rel=\"icon\" href=\"/favicon.svg\" type=\"image/svg+xml\" />
+    <title>LLM 站点</title>
     <style>
       body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.5; color: #1f2937; }
       code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
@@ -38,14 +41,24 @@ fn main() -> io::Result<()> {
   </head>
   <body>
     <div class=\"card\">
-      <h1>Admin UI is not built</h1>
-      <p>The embedded admin panel is missing because <code>ui/dist</code> was not found.</p>
-      <p>Run <code>pnpm install</code> and <code>pnpm run build</code> inside <code>ui/</code>, then rebuild the Rust binary.</p>
+      <h1>LLM 站点</h1>
+      <p>这是一个 LLM API 站点。</p>
+      <p>调用路径：<code>/v1</code></p>
     </div>
   </body>
 </html>
 "#;
         fs::write(target_dir.join("index.html"), placeholder)?;
+        let favicon_svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#111827"/>
+  <circle cx="32" cy="32" r="14" fill="#9ca3af"/>
+</svg>
+"##;
+        fs::write(target_dir.join("favicon.svg"), favicon_svg)?;
+        let public_ico = public_dir.join("favicon.ico");
+        if public_ico.exists() {
+            fs::copy(&public_ico, target_dir.join("favicon.ico"))?;
+        }
     }
 
     Ok(())

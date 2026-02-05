@@ -14,6 +14,8 @@ where
 {
     Router::new()
         .route("/", get(index))
+        .route("/favicon.svg", get(favicon_svg))
+        .route("/favicon.ico", get(favicon_ico))
         .route("/assets/{*path}", get(assets))
         .route("/{*path}", get(spa_fallback))
 }
@@ -35,6 +37,14 @@ async fn assets(Path(path): Path<String>) -> Response {
     }
     let full_path = format!("assets/{}", path);
     serve_file(&full_path, CachePolicy::Long)
+}
+
+async fn favicon_svg() -> Response {
+    serve_file("favicon.svg", CachePolicy::Long)
+}
+
+async fn favicon_ico() -> Response {
+    serve_file("favicon.ico", CachePolicy::Long)
 }
 
 fn serve_index() -> Response {

@@ -275,30 +275,22 @@ const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     "login.error.stale": "Saved key is no longer valid",
     "login.error.unreachable": "Unable to reach admin endpoint",
     "login.error.expired": "Session expired, please sign in again",
-    "access.badge": "Public Notice",
-    "access.title": "Open Access Statement",
-    "access.subtitle": "Temporary relay · community-only",
-    "access.lead":
-      "This page is a disclosure notice only. It does not promise stability, performance, or availability.",
-    "access.p1":
-      "The endpoint behind this page is a lightweight relay for testing, demos, and quick validation. It may change or disappear without notice, and it does not provide any contractual guarantees.",
-    "access.p2":
-      "No SLA is offered, no uptime target is defined, and no response-time expectations should be assumed. If you depend on consistent throughput, you should not rely on this relay.",
-    "access.p3":
-      "The operator may apply limits, reset data, or disable access at any time for any reason, including but not limited to resource constraints, abuse prevention, or routine maintenance.",
-    "access.p4":
-      "This statement is intentionally verbose so that a casual reader understands the context: it is a best-effort convenience, not a product. Use it only when you can accept breakage.",
-    "access.p5":
-      "If you need compliance, monitoring, or support, you should seek a formal provider. This notice is informational and does not form a service contract.",
-    "access.p6":
-      "The key status below reflects the current backend configuration. It may change without notice and should be treated as transient.",
-    "access.key.title": "Access Key Status",
-    "access.key.enabled": "Backend requires a key: {key}",
-    "access.key.disabled": "Backend does not require a key. Direct access is allowed.",
-    "access.key.loading": "Loading backend settings…",
-    "access.key.error": "Failed to read backend settings. Please retry later.",
-    "access.footer":
-      "Disclaimer: this notice is provided as-is. The operator accepts no liability for any loss, delay, or misuse."
+    "access.badge": "LLM Site",
+    "access.title": "LLM API",
+    "access.subtitle": "Use /v1",
+    "access.lead": "LLM API site. Call via /v1.",
+    "access.p1": "",
+    "access.p2": "",
+    "access.p3": "",
+    "access.p4": "",
+    "access.p5": "",
+    "access.p6": "",
+    "access.key.title": "Key Status",
+    "access.key.enabled": "Key required: {key}",
+    "access.key.disabled": "No key required.",
+    "access.key.loading": "Loading...",
+    "access.key.error": "Failed to load backend settings.",
+    "access.footer": ""
   },
   zh: {
     "app.title": "管理控制台",
@@ -572,30 +564,22 @@ const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     "models.catalog.interactive_fallback_text": "默认回退文案",
     "models.template.kind.interactive": "交互",
     "models.template.interactive.enable": "启用交互覆盖",
-    "access.badge": "公开公告",
-    "access.title": "开放访问说明",
-    "access.subtitle": "临时转发 · 社区用途",
-    "access.lead":
-      "本页面仅用于告知当前访问形态，不构成任何承诺或服务条款。",
-    "access.p1":
-      "这是一个用于测试、演示与联调的轻量转发入口，仅保证“能用时可用”。它可能随时被调整、重置或关闭，且不会提前通知。",
-    "access.p2":
-      "我们不提供 SLA、不承诺可用性、不保证响应时延，也不对任何时效性场景负责。若你需要稳定吞吐或一致体验，请勿依赖该入口。",
-    "access.p3":
-      "出于资源限制、风控或维护需要，访问可能会被限流、暂停或回滚。任何变更均不需要对外说明。",
-    "access.p4":
-      "这段说明故意写得冗长，是为了让你反复确认：这不是产品，也不是商业服务，只是一个便捷通道。",
-    "access.p5":
-      "若你需要合规、监控、支持或稳定保障，请使用正式渠道。本说明仅为信息展示，并不构成服务协议。",
-    "access.p6":
-      "下方密钥信息来自后端配置，仅代表当前状态，可能随时变化，请勿做长期依赖。",
-    "access.key.title": "调用密钥状态",
-    "access.key.enabled": "当前后端已启用调用密钥：{key}",
-    "access.key.disabled": "当前后端无需调用密钥，可直接访问。",
-    "access.key.loading": "正在读取后端设置…",
-    "access.key.error": "读取后端设置失败，请稍后重试。",
-    "access.footer":
-      "免责声明：本站点按现状提供，不对任何损失、延迟或误用承担责任。"
+    "access.badge": "LLM 站点",
+    "access.title": "LLM API",
+    "access.subtitle": "使用 /v1 调用",
+    "access.lead": "这是一个 LLM API 站点，调用路径为 /v1。",
+    "access.p1": "",
+    "access.p2": "",
+    "access.p3": "",
+    "access.p4": "",
+    "access.p5": "",
+    "access.p6": "",
+    "access.key.title": "密钥状态",
+    "access.key.enabled": "需要密钥：{key}",
+    "access.key.disabled": "无需密钥。",
+    "access.key.loading": "读取中...",
+    "access.key.error": "读取失败，请稍后重试。",
+    "access.footer": ""
 
   }
 };

@@ -68,6 +68,19 @@ export default function AccessScreen({
     }
   }
 
+  const paragraphs = [
+    "access.p1",
+    "access.p2",
+    "access.p3",
+    "access.p4",
+    "access.p5",
+    "access.p6",
+  ]
+    .map((key) => ({ key, text: t(key) }))
+    .filter(({ key, text }) => text.trim().length > 0 && text !== key);
+
+  const footerText = t("access.footer");
+
   return (
     <div className="access-root">
       <div className="access-shell animate-[fadeIn_0.6s_ease-out]">
@@ -83,16 +96,9 @@ export default function AccessScreen({
 
         <section className="access-body">
           <p className="access-lead">{t("access.lead")}</p>
-          {[
-            "access.p1",
-            "access.p2",
-            "access.p3",
-            "access.p4",
-            "access.p5",
-            "access.p6",
-          ].map((key, idx) => (
-            <p key={`${key}-${idx}`} className="access-paragraph">
-              {t(key)}
+          {paragraphs.map((item) => (
+            <p key={item.key} className="access-paragraph">
+              {item.text}
             </p>
           ))}
 
@@ -104,9 +110,11 @@ export default function AccessScreen({
           </div>
         </section>
 
-        <footer className="access-footer">
-          <p>{t("access.footer")}</p>
-        </footer>
+        {footerText.trim().length > 0 ? (
+          <footer className="access-footer">
+            <p>{footerText}</p>
+          </footer>
+        ) : null}
       </div>
     </div>
   );
