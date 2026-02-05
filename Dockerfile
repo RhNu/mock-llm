@@ -2,6 +2,7 @@ FROM rust:1.92-slim AS builder
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
+COPY build.rs ./
 COPY src ./src
 COPY config ./config
 COPY ui ./ui
