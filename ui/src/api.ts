@@ -4,6 +4,10 @@ export type ApiError = {
   details?: unknown;
 };
 
+export type AdminAuthStatus = {
+  enabled: boolean;
+};
+
 export function createApi(getToken: () => string, onUnauthorized: () => void) {
   function authHeaders() {
     const token = getToken();
@@ -110,6 +114,7 @@ export function createApi(getToken: () => string, onUnauthorized: () => void) {
 
   return {
     getAuthHeaders: authHeaders,
+    getAdminAuth: () => requestJson("/v0/admin/auth") as Promise<AdminAuthStatus>,
     getStatus: () => requestJson("/v0/status"),
     reload: () => requestJson("/v0/reload", { method: "POST" }),
     getConfig: () => requestJson("/v0/config"),

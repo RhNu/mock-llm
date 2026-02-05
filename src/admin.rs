@@ -37,6 +37,13 @@ pub async fn status(
     Ok(Json(body).into_response())
 }
 
+pub async fn admin_auth_status(
+    State(state): State<AppState>,
+) -> Result<Response, AppError> {
+    let kernel = state.kernel.current();
+    Ok(Json(json!({ "enabled": kernel.config.server.admin_auth.enabled })).into_response())
+}
+
 pub async fn reload(
     State(state): State<AppState>,
     headers: HeaderMap,

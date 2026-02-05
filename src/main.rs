@@ -22,6 +22,7 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
 use crate::admin::{
+    admin_auth_status,
     delete_script as admin_delete_script,
     get_config as admin_get_config,
     get_models_bundle as admin_get_models_bundle,
@@ -98,6 +99,7 @@ async fn main() -> Result<(), anyhow::Error> {
         });
 
     let app = Router::new()
+        .route("/v0/admin/auth", axum::routing::get(admin_auth_status))
         .route("/v0/status", axum::routing::get(status))
         .route("/v0/reload", axum::routing::post(reload))
         .route(

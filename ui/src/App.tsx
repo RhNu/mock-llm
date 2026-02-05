@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import toast, { Toaster } from "react-hot-toast";
 import { ApiError, createApi } from "./api";
 import { createTranslator, getInitialLang, saveLang, Lang } from "./i18n";
-import TokenModal from "./components/TokenModal";
+import LoginScreen from "./components/LoginScreen";
 import CatalogPanel from "./panels/CatalogPanel";
 import ConfigPanel from "./panels/ConfigPanel";
 import ModelsPanel from "./panels/ModelsPanel";
@@ -19,7 +19,12 @@ export default function App() {
     () => localStorage.getItem("admin_token") ?? "",
   );
   const [tokenDraft, setTokenDraft] = useState(token);
-  const [needsToken, setNeedsToken] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authStage, setAuthStage] = useState<"checking" | "login" | "open">(
+    "checking",
+  );
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const [lang, setLang] = useState<Lang>(getInitialLang());
   const t = useMemo(() => createTranslator(lang), [lang]);
@@ -31,14 +36,21 @@ export default function App() {
   const api = useMemo(
     () =>
       createApi(
-        () => token,
-        () => setNeedsToken(true),
+        () => (authRequired ? token : ""),
+        () => {
+          setAuthRequired(true);
+          setAuthStage("login");
+          setAuthError(t("login.error.expired"));
+          setToken("");
+          setTokenDraft("");
+          localStorage.removeItem("admin_token");
+        },
       ),
-    [token],
+    [authRequired, t, token],
   );
 
   useEffect(() => {
-    setNeedsToken(true);
+    checkAuth(token, true);
   }, []);
 
   function notify(type: "success" | "error", text: string) {
@@ -55,7 +67,7 @@ export default function App() {
     notify("error", msg);
   }
 
-  function saveToken(value: string) {
+  function commitToken(value: string) {
     setToken(value);
     setTokenDraft(value);
     if (value) {
@@ -63,11 +75,83 @@ export default function App() {
     } else {
       localStorage.removeItem("admin_token");
     }
-    setNeedsToken(false);
-    notify(
-      "success",
-      value ? t("notice.token.saved") : t("notice.token.cleared"),
-    );
+  }
+
+  function clearTokenStorage(clearDraft = false) {
+    setToken("");
+    if (clearDraft) {
+      setTokenDraft("");
+    }
+    localStorage.removeItem("admin_token");
+  }
+
+  async function verifyToken(value: string, silent = false) {
+    setAuthBusy(true);
+    if (!silent) {
+      setAuthError(null);
+    }
+    try {
+      const probe = createApi(() => value, () => {});
+      await probe.getStatus();
+      commitToken(value);
+      setAuthStage("open");
+      setAuthError(null);
+      return true;
+    } catch (error) {
+      const err = error as ApiError;
+      const unauthorized = err?.status === 401;
+      clearTokenStorage(silent);
+      setAuthStage("login");
+      if (unauthorized) {
+        setAuthError(
+          silent ? t("login.error.stale") : t("login.error.invalid"),
+        );
+      } else {
+        setAuthError(t("login.error.unreachable"));
+      }
+      return false;
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function checkAuth(candidateToken: string, verifySavedToken: boolean) {
+    const probe = createApi(() => "", () => {});
+    setAuthStage("checking");
+    setAuthError(null);
+    try {
+      const status = await probe.getAdminAuth();
+      const enabled = Boolean(status?.enabled);
+      setAuthRequired(enabled);
+      if (!enabled) {
+        setAuthStage("open");
+        return;
+      }
+      if (verifySavedToken && candidateToken.trim()) {
+        await verifyToken(candidateToken.trim(), true);
+      } else {
+        setAuthStage("login");
+      }
+    } catch (err) {
+      setAuthRequired(true);
+      setAuthStage("login");
+      setAuthError(t("login.error.unreachable"));
+    }
+  }
+
+  async function handleLogin() {
+    const value = tokenDraft.trim();
+    if (!value) {
+      setAuthError(t("login.error.empty"));
+      return;
+    }
+    await verifyToken(value, false);
+  }
+
+  function handleLogout() {
+    clearTokenStorage(true);
+    setAuthStage("login");
+    setAuthError(null);
   }
 
   const navItems = [
@@ -103,6 +187,33 @@ export default function App() {
     },
   ];
 
+  if (authStage !== "open") {
+    return (
+      <div className="min-h-screen text-slate-100">
+        <Toaster position="top-right" toastOptions={{ duration: 4200 }} />
+        <LoginScreen
+          mode={authStage === "checking" ? "checking" : "login"}
+          token={tokenDraft}
+          onChange={(value) => {
+            setTokenDraft(value);
+            if (authError) {
+              setAuthError(null);
+            }
+          }}
+          onSubmit={handleLogin}
+          onRetry={() => {
+            if (!authBusy) {
+              checkAuth(tokenDraft, false);
+            }
+          }}
+          busy={authBusy}
+          error={authError}
+          t={t}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen px-5 py-6 text-slate-100 md:px-8">
       <Toaster position="top-right" toastOptions={{ duration: 4200 }} />
@@ -137,12 +248,14 @@ export default function App() {
               EN
             </button>
           </div>
-          <button
-            className="rounded-full border border-slate-700/60 bg-slate-900/50 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
-            onClick={() => setNeedsToken(true)}
-          >
-            {t("app.token")}
-          </button>
+          {authRequired ? (
+            <button
+              className="rounded-full border border-slate-700/60 bg-slate-900/50 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-500"
+              onClick={handleLogout}
+            >
+              {t("app.logout")}
+            </button>
+          ) : null}
           <span className="rounded-full bg-slate-900/80 px-3 py-1 text-xs uppercase tracking-[0.3em]">
             /{view}
           </span>
@@ -225,19 +338,6 @@ export default function App() {
           )}
         </section>
       </main>
-
-      {needsToken && (
-        <TokenModal
-          token={tokenDraft}
-          onChange={setTokenDraft}
-          onSave={() => saveToken(tokenDraft.trim())}
-          onSkip={() => {
-            setNeedsToken(false);
-            notify("success", t("notice.token.skip"));
-          }}
-          t={t}
-        />
-      )}
     </div>
   );
 }
