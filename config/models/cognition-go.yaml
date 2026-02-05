@@ -1,7 +1,7 @@
 ﻿schema: 2
 id: "cognition-go"
 meta:
-  owned_by: "llm-lab"
+  owned_by: "cognition-lab"
   created: 1738675200
 kind: "interactive"
 interactive:

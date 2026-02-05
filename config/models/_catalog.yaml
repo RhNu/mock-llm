@@ -6,7 +6,7 @@ aliases:
     strategy: "round_robin"
 
 defaults:
-  owned_by: "llm-lab"
+  owned_by: "default"
   static:
     stream_chunk_chars: 8
   script:
