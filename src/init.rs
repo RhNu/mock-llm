@@ -37,7 +37,7 @@ pub fn ensure_config_layout(config_dir: &Path) -> anyhow::Result<()> {
     write_if_missing(models_dir.join("cognition-pro.yaml"), DEFAULT_MODEL_PRO)?;
     write_if_missing(models_dir.join("cognition-ultra.yaml"), DEFAULT_MODEL_ULTRA)?;
     write_if_missing(models_dir.join("cognition-go.yaml"), DEFAULT_MODEL_GO)?;
-    write_if_missing(scripts_dir.join("example.js"), DEFAULT_SCRIPT_EXAMPLE)?;
+    write_if_missing(scripts_dir.join("cognition-ultra.js"), DEFAULT_SCRIPT_EXAMPLE)?;
     write_if_missing(scripts_dir.join("init.js"), DEFAULT_SCRIPT_INIT)?;
     write_if_missing(scripts_dir.join("types.d.ts"), DEFAULT_TYPES)?;
 
