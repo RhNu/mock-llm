@@ -9,7 +9,7 @@ const DEFAULT_MODEL_FLASH: &str = include_str!("../config/models/cognition-flash
 const DEFAULT_MODEL_PRO: &str = include_str!("../config/models/cognition-pro.yaml");
 const DEFAULT_MODEL_ULTRA: &str = include_str!("../config/models/cognition-ultra.yaml");
 const DEFAULT_MODEL_GO: &str = include_str!("../config/models/cognition-go.yaml");
-const DEFAULT_SCRIPT_EXAMPLE: &str = include_str!("../config/scripts/example.js");
+const DEFAULT_SCRIPT_EXAMPLE: &str = include_str!("../config/scripts/cognition-ultra.js");
 const DEFAULT_SCRIPT_INIT: &str = include_str!("../config/scripts/init.js");
 const DEFAULT_TYPES: &str = include_str!("../config/scripts/types.d.ts");
 
