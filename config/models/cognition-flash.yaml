@@ -2,7 +2,7 @@
 id: "cognition-flash"
 extends: ["base-static"]
 meta:
-  owned_by: "cognition-lab"
+  owned_by: "cognition"
   created: 1738675200
 kind: "static"
 static:
@@ -12,4 +12,4 @@ static:
       pick: "round_robin"
       replies:
         - content: "你好。"
-        - content: "我是 cognition-flash，一个快速的 mock 模型。"
+        - content: "我是 cognition-flash，一个快速模型。"

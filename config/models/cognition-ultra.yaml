@@ -2,11 +2,11 @@
 id: "cognition-ultra"
 extends: ["base-script"]
 meta:
-  owned_by: "cognition-lab"
+  owned_by: "cognition"
   created: 1738675200
 kind: "script"
 script:
-  file: "example.js"
+  file: "cognition-ultra.js"
   init_file: "init.js"
   timeout_ms: 1500
   stream_chunk_chars: 12

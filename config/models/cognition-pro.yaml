@@ -2,7 +2,7 @@
 id: "cognition-pro"
 extends: ["base-static"]
 meta:
-  owned_by: "cognition-lab"
+  owned_by: "cognition"
   created: 1738675200
 kind: "static"
 static:
